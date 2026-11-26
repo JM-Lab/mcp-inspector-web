@@ -34,11 +34,14 @@ test('registryCard: carries name, description, required header and icon', () => 
   const card = lib.registryCard({
     name: 'com.example/mcp', title: 'Example', description: 'desc', websiteUrl: 'https://example.com',
     icons: [{ src: 'http://insecure/x.png' }, { src: 'https://example.com/icon.png' }],
-    remotes: [{ type: 'streamable-http', url: 'https://mcp.example.com/mcp', headers: [{ name: 'X-Opt' }, { name: 'X-Key', isSecret: true }] }],
+    remotes: [{ type: 'streamable-http', url: 'https://mcp.example.com/mcp', headers: [{ name: 'X-Opt' }, { name: 'X-Key', isSecret: true, value: 'Bearer ${API_KEY}' }] }],
   })
-  assert.deepEqual(card, { id: 'com.example/mcp', name: 'Example', desc: 'desc', url: 'https://mcp.example.com/mcp', hint: 'X-Key', icon: 'https://example.com/icon.png', web: 'https://example.com' })
+  assert.deepEqual(card, { id: 'com.example/mcp', name: 'Example', desc: 'desc', url: 'https://mcp.example.com/mcp', hint: 'X-Key', hintValue: 'Bearer <API_KEY>', icon: 'https://example.com/icon.png', web: 'https://example.com' })
   assert.equal(lib.registryCard({ name: 'x', remotes: [] }), null)
   assert.equal(lib.registryCard({ name: 'n', remotes: [{ type: 'streamable-http', url: 'https://a.example/mcp' }] }).name, 'n')
+  const local = { name: 'l', remotes: [{ type: 'streamable-http', url: 'http://localhost:3000/mcp' }] }
+  assert.equal(lib.registryCard(local), null, 'http only when asked (a page on http)')
+  assert.equal(lib.registryCard(local, { http: true }).url, 'http://localhost:3000/mcp')
 })
 
 test('registryCards: drops entries with no remote and repeated addresses, up to max', () => {
@@ -86,7 +89,7 @@ test('storage: added and recent servers are kept apart and read back', () => {
   const recent = [{ url: 'https://b.example/mcp', name: 'B', desc: 'd', icon: 'https://b.example/i.png' }]
   lib.saveStore(store, { mine, recent })
   const back = lib.loadStore(store)
-  assert.deepEqual(back.mine, [{ url: 'https://a.example/mcp', name: 'A', desc: '', icon: '', web: '', hint: '', headers: { Authorization: 'Bearer x' } }])
+  assert.deepEqual(back.mine, [{ url: 'https://a.example/mcp', id: '', authHeader: '', name: 'A', desc: '', icon: '', web: '', hint: '', hintValue: '', headers: { Authorization: 'Bearer x' } }])
   assert.equal(back.recent[0].name, 'B')
   assert.equal(back.recent[0].icon, 'https://b.example/i.png')
   assert.ok(!('key' in back.mine[0]), 'UI-only fields are not saved')

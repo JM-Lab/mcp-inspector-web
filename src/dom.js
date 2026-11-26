@@ -25,5 +25,22 @@ export function linkify(pre, text) {
   pre.append(text.slice(last))
 }
 
+/**
+ * Copies text when pressed and says so on the button for a moment (label, then copied, or ✕ when the browser refuses).
+ * The text is also kept in data-copy, so it can be read where the clipboard is not available.
+ */
+export function copyButton(text, { label, copied, cls = 'mcpi-btn mcpi-copy', title } = {}) {
+  const b = h('button', { type: 'button', class: cls, 'data-copy': text, title, 'aria-label': title })
+  const show = (v) => { if (typeof v === 'string') b.textContent = v; else b.replaceChildren(v) }
+  const idle = () => (typeof label === 'function' ? label() : label)
+  show(idle())
+  b.addEventListener('click', async (e) => {
+    e.stopPropagation()
+    try { await navigator.clipboard.writeText(text); show(copied); b.classList.add('is-done') } catch (err) { show('✕') }
+    setTimeout(() => { show(idle()); b.classList.remove('is-done') }, 1500)
+  })
+  return b
+}
+
 /* Labels sit above inputs. A placeholder alone disappears as soon as you type. */
 export const labeled = (label, input) => h('label', { class: 'mcpi-lab' }, h('span', { text: label }), input)

@@ -2,7 +2,8 @@
  * The page in a real browser: headless Chrome, the script tag bundle built from src/, and a local MCP server
  * (test/support/mcp-server.ts) on another origin that allows CORS. No outside network.
  * It clicks through what a person does: open a server, run tools, answer elicitation, cancel, prompts with completion,
- * resources, a list that changes, History, adding a server with a header token, and a full OAuth round trip in the browser.
+ * resources, a list that changes, History, adding a server with a header token, a full OAuth round trip in the browser,
+ * and arriving by a link (?r=, ?u= with &oauth or &h=, and the long forms) with the share and install box.
  * Skipped when no Chrome is found (set CHROME to its path); `MCPI_BROWSER=0` turns it off.
  */
 import { test, before, after } from 'node:test'
@@ -40,12 +41,21 @@ before(async () => {
   mcp = await startMcpServer({ cors: true })
   const js = (await build({ entryPoints: ['src/auto.js'], bundle: true, format: 'iife', platform: 'browser', write: false, logLevel: 'silent' })).outputFiles[0].text
   const css = (await build({ entryPoints: ['src/style.css'], bundle: true, write: false, logLevel: 'silent' })).outputFiles[0].text
-  const options = { lang: 'en', registry: false, servers: [{ key: 'local', name: 'Local test server', url: mcp.base + '/mcp' }] }
+  /* A stand-in for the MCP Registry: one server by name, and an empty list for the panel. */
+  const entry = { server: { name: 'io.test/local', title: 'Registry test server', description: 'from the registry', remotes: [{ type: 'streamable-http', url: mcp.base + '/from-registry' }] } }
+  const locked = { server: { name: 'io.test/locked', title: 'Locked', remotes: [{ type: 'streamable-http', url: mcp.base + '/token-registry', headers: [{ name: 'x-test-key', value: '\${KEY}', isRequired: true, isSecret: true }] }] } }
+  const registry = { 'io.test/local': entry, 'io.test/locked': locked }
+  const options = { lang: 'en', registry: '/registry/v0/servers', servers: [{ key: 'local', name: 'Local test server', url: mcp.base + '/mcp' }] }
   const html = `<!doctype html><html lang="en"><meta charset="utf-8"><title>test</title><link rel="stylesheet" href="/mcp-inspector.css">
 <div id="mcpi"></div><script>window.MCP_INSPECTOR = ${JSON.stringify(options)}</script><script src="/mcp-inspector.js"></script>`
   page = http.createServer((req, res) => {
     const path = new URL(req.url!, 'http://x').pathname
     if (path === '/mcp-inspector.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(js); return }
+    if (path.startsWith('/registry/')) {
+      const name = decodeURIComponent(path.replace('/registry/v0/servers/', '').replace('/versions/latest', ''))
+      const body = path === '/registry/v0/servers' ? { servers: [], metadata: {} } : registry[name as keyof typeof registry]
+      res.writeHead(body ? 200 : 404, { 'content-type': 'application/json' }); res.end(JSON.stringify(body || { error: 'not found' })); return
+    }
     if (path === '/mcp-inspector.css') { res.writeHead(200, { 'content-type': 'text/css' }); res.end(css); return }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(html)
   })
@@ -67,7 +77,7 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.deepEqual(await b.run(`[$t.count('Tools'), $t.count('Prompts'), $t.count('Resources')]`), [4, 1, 1])
     assert.match(await b.run(`document.querySelector('.mcpi-info').textContent`), /mcpi-test 0\.0\.1/)
     assert.equal(await b.run(`document.querySelector('.mcpi-instr pre').textContent`), 'test instructions')
-    assert.match(await b.run('location.search'), /\?server=local/)
+    assert.match(await b.run('location.search'), /\?s=local/)
   })
 
   await t.test('Run is held back while a required field is empty', async () => {
@@ -161,6 +171,59 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.equal(await b.run(`$t.count('Tools')`), 4)
     assert.equal(await b.run(`Object.keys(sessionStorage).some((k) => k.startsWith('mcpi:tokens:'))`), true, 'tokens are in sessionStorage')
     assert.equal(await b.run(`localStorage.getItem('mcpi:oauth')`), null, 'the pending sign-in was used up')
+  })
+
+  await t.test('a registry link opens that server, and the share box offers the same link', async () => {
+    await open('?r=io.test/local')
+    await b.until(`$t.status() === 'Connected'`)
+    assert.equal(await b.run(`document.querySelector('.mcpi-id h2').textContent`), 'Registry test server')
+    assert.equal(await b.run('location.search'), '?r=io.test/local')
+    assert.equal(await b.run(`document.querySelector('.mcpi-share-link').value`), origin + '/?r=io.test/local')
+    const clients = await b.run(`[...document.querySelectorAll('.mcpi-install')].map((x) => x.dataset.client)`)
+    assert.deepEqual(clients, ['claude-code', 'vscode', 'cursor', 'claude'])
+    assert.equal(await b.run(`document.querySelector('[data-client=claude-code] pre').textContent`), 'claude mcp add --transport http local ' + mcp.base + '/from-registry')
+  })
+
+  await t.test('a registry entry that needs a header shows its field at once, and the token reaches the server', async () => {
+    await open('?r=io.test/locked')
+    await b.until(`!document.querySelector('.mcpi-auth').hidden`)
+    assert.deepEqual(await b.run(`[...document.querySelectorAll('.mcpi-token input')].map((i) => i.value || i.placeholder)`), ['x-test-key', '<KEY>'])
+    await b.run(`(() => { const [, v] = document.querySelectorAll('.mcpi-token input'); $t.set(v, 'secret'); document.querySelector('.mcpi-token').requestSubmit() })()`)
+    await b.until(`$t.status() === 'Connected'`)
+    assert.doesNotMatch(await b.run(`document.querySelector('.mcpi-share-link').value + location.search`), /secret/, 'the token is never in a link')
+  })
+
+  await t.test('an unknown registry name says so', async () => {
+    await open('?r=io.test/nothing')
+    await b.until(`document.querySelector('.mcpi-notice')`)
+  })
+
+  await t.test('&oauth shows the sign-in button and waits for a press', async () => {
+    const calls = mcp.oauth.tokenCalls
+    await b.run('sessionStorage.clear()')
+    await open('?u=' + mcp.base + '/oauth-mcp&oauth')
+    await b.until(`$t.status() === 'Failed'`)
+    assert.equal(await b.run(`$t.button('Connect with OAuth (PKCE)').hidden`), false)
+    assert.equal(await b.run('location.origin'), origin, 'still on this page, no redirect')
+    assert.equal(mcp.oauth.tokenCalls, calls)
+    assert.match(await b.run(`document.querySelector('.mcpi-share-link').value`), /&oauth$/)
+  })
+
+  await t.test('&h= names the header, the long form still works, and other query keys stay', async () => {
+    await open('?lang=en&url=' + mcp.base + '/token&auth=header&header=x-test-key')
+    await b.until(`!document.querySelector('.mcpi-auth').hidden`)
+    assert.equal(await b.run(`document.querySelector('.mcpi-token input').value`), 'x-test-key')
+    assert.match(await b.run('location.search'), /^\?lang=en&u=http:\/\/127\.0\.0\.1:\d+\/token&h=x-test-key$/, 'rewritten in the short form')
+  })
+
+  await t.test('every card has a button that copies the link opening that server, without opening it', async () => {
+    await open()
+    const share = `document.querySelector('.mcpi-server[data-key=local]').parentNode.querySelector('.mcpi-card-share')`
+    assert.equal(await b.run(share + '.dataset.copy'), origin + '/?s=local')
+    await b.run(share + '.click()')
+    assert.equal(await b.run(`document.querySelector('.mcpi-main').hidden`), true, 'pressing it does not open the server')
+    const kept = await b.run(`[...document.querySelectorAll('.mcpi-servers .mcpi-card-share')].map((x) => x.dataset.copy)`)
+    assert.ok(kept.includes(origin + '/?r=io.test/local'), 'a server from the registry is linked by its name')
   })
 
   await t.test('no uncaught errors in the page', () => {

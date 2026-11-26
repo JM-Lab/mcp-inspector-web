@@ -1,17 +1,18 @@
 /*
  * The MCP Registry panel: search, and the "Well known", "No auth needed" and "Recently updated" filters.
- *   registryPanel({ cfg, ui, onPick }) → { el, search() }
+ *   registryPanel({ cfg, ui, onPick, linkOf }) → { el, search() }
  *     onPick(card)   a result was pressed; the page adds it to recently viewed and opens it
+ *     linkOf(card)   the link that opens it (?r=<name>), copied by the card's link button
  *
  * The registry has no popularity order (its query parameters are only search, updated_since, cursor, limit and version).
  * So 'Well known' and 'No auth needed' come from a prepared list (options.featured, see scripts/featured.js),
  * while 'Recently updated' and search ask the registry live, when pressed.
  */
 import { h } from './dom.js'
-import { cardBody } from './cards.js'
+import { cardBody, shareOf } from './cards.js'
 import { REG_FIRST, registryCards, featuredFor } from './lib.js'
 
-export function registryPanel({ cfg, ui, onPick }) {
+export function registryPanel({ cfg, ui, onPick, linkOf }) {
   const input = h('input', { type: 'search', placeholder: ui.regSearch, spellcheck: 'false', autocomplete: 'off', 'aria-label': 'MCP Registry' })
   const list = h('div', { class: 'mcpi-cards mcpi-reg-list' })
   const more = h('button', { type: 'button', class: 'mcpi-btn mcpi-reg-more', text: ui.regMore, hidden: true })
@@ -64,8 +65,11 @@ export function registryPanel({ cfg, ui, onPick }) {
       return
     }
     if (mine !== seq) return
-    const rows = cards.map((c, i) => h('button', { type: 'button', class: 'mcpi-card mcpi-reg', hidden: i >= REG_FIRST, onclick: () => onPick(c) },
-      cardBody(c, c.id), c.open ? h('span', { class: 'mcpi-card-tag', text: ui.openTag }) : null))
+    /* A button cannot hold another button, so the card and its link button sit side by side in a wrapper. */
+    const rows = cards.map((c, i) => h('div', { class: 'mcpi-card-wrap', hidden: i >= REG_FIRST },
+      h('button', { type: 'button', class: 'mcpi-card mcpi-reg', onclick: () => onPick(c) },
+        cardBody(c, c.id), c.open ? h('span', { class: 'mcpi-card-tag', text: ui.openTag }) : null),
+      shareOf(linkOf && linkOf(c), ui)))
     list.replaceChildren(...(rows.length ? rows : [h('p', { class: 'mcpi-hint is-shown', text: ui.regEmpty })]))
     more.hidden = rows.length <= REG_FIRST
   }

@@ -12,31 +12,33 @@
  *   oauth.js     OAuth storage             form.js      inputs from a JSON Schema
  *   output.js    the answer box            panes.js     tool, prompt, resource and History panes
  *   cards.js     server cards              registry.js  the MCP Registry panel
+ *   share.js     links into the page, and how to add a server to MCP clients
  *
  *   mount(root, options)   see README.md for every option
  */
 import { Conn } from './conn.js'
 import { STRINGS } from './strings.js'
-import { h, linkify, labeled } from './dom.js'
+import { h, linkify, labeled, copyButton } from './dom.js'
 import { oauthStore } from './oauth.js'
 import { form } from './form.js'
 import { panes } from './panes.js'
 import { cardOf } from './cards.js'
 import { registryPanel } from './registry.js'
-import { CAP, REGISTRY, STORE_PREFIX, hostOf, cleanUrl, pushFront, filled, loadStore, saveStore, explainError } from './lib.js'
+import { linkOf, readLink, registryEntry, installsFor, mergeQuery } from './share.js'
+import { CAP, REGISTRY, STORE_PREFIX, hostOf, cleanUrl, pushFront, filled, loadStore, saveStore, explainError, registryCard } from './lib.js'
 
 const TABS = [['tools', 'Tools'], ['prompts', 'Prompts'], ['resources', 'Resources'], ['history', 'History']]
 const LEVELS = ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency']
 
 export function mount(root, options) {
-  const cfg = Object.assign({ lang: 'en', servers: [], featured: null, registry: REGISTRY, storagePrefix: STORE_PREFIX, clientInfo: null, oauth: {}, syncUrl: true }, options)
+  const cfg = Object.assign({ lang: 'en', servers: [], featured: null, registry: REGISTRY, storagePrefix: STORE_PREFIX, clientInfo: null, oauth: {}, syncUrl: true, pageUrl: null }, options)
   const ui = Object.assign({}, STRINGS.en, STRINGS[cfg.lang], cfg.ui)
   const P = cfg.storagePrefix
   root.classList.add('mcpi')
 
   const explain = (e, oauth) => explainError(e, oauth, ui)
   const auth = oauthStore({ prefix: P, oauth: cfg.oauth, local: localStorage, session: sessionStorage, page: location })
-  const setQuery = (q) => { try { history.replaceState(null, '', location.pathname + q) } catch (e) { /* ignore */ } }
+  const setQuery = (q) => { try { history.replaceState(null, '', location.pathname + mergeQuery(location.search, q)) } catch (e) { /* ignore */ } }
 
   /* Servers: pinned (options.servers) + added by address (mine) + recently viewed (recent). The last two keep CAP each in this browser. */
   const stored = loadStore(localStorage, P)
@@ -68,6 +70,7 @@ export function mount(root, options) {
     pane: h('section', { class: 'mcpi-pane' }),
     asks: h('div', { class: 'mcpi-asks' }),
     auth: h('div', { class: 'mcpi-auth', hidden: true }),
+    share: h('details', { class: 'mcpi-share' }),
     level: h('select', { class: 'mcpi-level', 'aria-label': 'Logging level', hidden: true }, LEVELS.map((v) => h('option', { value: v, text: 'log: ' + v, selected: v === 'info' }))),
   }
   const main = h('div', { class: 'mcpi-main', hidden: true })
@@ -167,6 +170,7 @@ export function mount(root, options) {
     el.info.textContent = info ? [[sv.name, sv.version].filter(Boolean).join(' '), info.protocolVersion && 'protocol ' + info.protocolVersion, Object.keys(info.capabilities || {}).join(', ')].filter(Boolean).join(' · ') : ''
     el.instr.hidden = !(info && info.instructions)
     if (info && info.instructions) { const pre = el.instr.querySelector('pre'); pre.replaceChildren(); linkify(pre, info.instructions) }
+    renderShare()
     for (const b of el.servers.querySelectorAll('.mcpi-server')) {
       b.classList.toggle('is-on', b.dataset.key === current.key)
       b.setAttribute('aria-pressed', b.dataset.key === current.key ? 'true' : 'false')
@@ -176,14 +180,40 @@ export function mount(root, options) {
     /* A server that once asked for authentication keeps its OAuth button (if it vanished after a failed OAuth, nobody would know what happened). */
     if (c.needAuth) current.wantsAuth = true
     const wants = c.needAuth || current.wantsAuth
-    el.auth.hidden = !(current.custom && (wants || c.state === 'failed' || current.headers))
+    /* A header named by a link (&h=) or by the registry shows its field right away, before any 401. */
+    const named = current.authHeader || current.hint
+    el.auth.hidden = !(current.custom && (wants || c.state === 'failed' || current.headers || named))
     signIn.hidden = !wants
     authNote.textContent = c.state !== 'failed' ? '' : c.needAuth ? ui.failAuth : wants ? c.error : ''
     if (document.activeElement !== tName && document.activeElement !== tValue) {
       const hd = Object.entries(current.headers || {})[0]
-      tName.value = hd ? hd[0] : current.hint || 'Authorization'
+      tName.value = hd ? hd[0] : named || 'Authorization'
       tValue.value = hd ? hd[1] : ''
+      tValue.placeholder = current.hintValue || (tName.value.toLowerCase() === 'authorization' ? 'Bearer <token>' : '<token>')
     }
+  }
+
+  /*
+   * Share & add to a client: the link that opens this server here, and per client how to add it.
+   * Redrawn only when the link changes, so an open box stays open.
+   */
+  const pageUrl = () => cfg.pageUrl || location.origin + location.pathname
+  const shareLink = (s) => pageUrl() + linkOf(s)
+  function renderShare() {
+    const link = shareLink(current)
+    if (el.share.dataset.link === link) return
+    el.share.dataset.link = link
+    const copyBtn = (text) => copyButton(text, { label: ui.copy, copied: ui.copied })
+    const linkInput = h('input', { type: 'text', readonly: true, value: link, class: 'mcpi-share-link', 'aria-label': ui.shareLink, onfocus: (e) => e.target.select() })
+    el.share.replaceChildren(
+      h('summary', { text: ui.share }),
+      h('p', { class: 'mcpi-label', text: ui.shareLink }),
+      h('div', { class: 'mcpi-share-row' }, linkInput, copyBtn(link)),
+      h('p', { class: 'mcpi-hint is-shown', text: ui.shareNote }),
+      ...installsFor(current).map((x) => h('div', { class: 'mcpi-install', 'data-client': x.id },
+        h('p', { class: 'mcpi-label' }, x.label, x.file ? h('code', { text: x.file }) : null, x.link ? h('a', { href: x.link, class: 'mcpi-install-open', text: ui.openIn.replace('{v}', x.label) }) : null),
+        h('div', { class: 'mcpi-share-row' }, h('pre', { text: x.code }), copyBtn(x.code)),
+        x.note ? h('p', { class: 'mcpi-hint is-shown', text: ui[x.note] }) : null)))
   }
 
   async function connect(server, quiet, opts) {
@@ -208,7 +238,7 @@ export function mount(root, options) {
   async function select(server) {
     current = server
     if (!conns[server.key]) conns[server.key] = newConn(server)
-    if (cfg.syncUrl) setQuery(server.custom ? '?url=' + encodeURIComponent(server.url) : '?server=' + encodeURIComponent(server.key))
+    if (cfg.syncUrl) setQuery(linkOf(server))
     renderHead()
     selectTab('tools')
     if (conns[server.key].state === 'idle' || conns[server.key].state === 'failed') {
@@ -231,7 +261,7 @@ export function mount(root, options) {
 
   /* Servers are laid out as cards. Pressing one opens its inspector below. */
   function renderServers() {
-    const card = (s) => cardOf(s, { ui, onOpen: open, onRemove: remove })
+    const card = (s) => cardOf(s, { ui, onOpen: open, onRemove: remove, link: shareLink(s) })
     const group = (label, list, extra) => [h('p', { class: 'mcpi-label' }, label, list.length && list[0].custom ? h('span', { text: ' ' + list.length + ' / ' + CAP }) : null), extra, list.length ? h('div', { class: 'mcpi-cards' }, list.map(card)) : null]
     const recent = ofKind('recent')
     el.servers.replaceChildren(...[
@@ -246,7 +276,7 @@ export function mount(root, options) {
     main.scrollIntoView({ block: 'start', behavior: instant || window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
   }
   /*
-   * Arriving with ?server= or ?url= scrolls to the inspector. When the cards above (the registry list) fill in late, the inspector is
+   * Arriving by a link (?s=, ?r=, ?u=) scrolls to the inspector. When the cards above (the registry list) fill in late, the inspector is
    * pushed down and the view stops halfway (seen in iPhone Safari). If the person has not scrolled meanwhile, align once more after they fill in.
    */
   function revealOnArrival(ready) {
@@ -364,19 +394,21 @@ export function mount(root, options) {
     const s = current
     s.headers = tName.value.trim() && tValue.value.trim() ? { [tName.value.trim()]: tValue.value.trim() } : null
     save()
+    if (cfg.syncUrl && current === s) setQuery(linkOf(s))
     tValue.blur()
     reopen(s)
   })
   signIn.addEventListener('click', () => reopen(current, { oauth: true }))
   el.auth.append(authNote, h('p', { class: 'mcpi-label', text: 'OAuth' }), signIn, h('p', { class: 'mcpi-label', text: ui.token }), tForm)
 
-  const registry = cfg.registry ? registryPanel({ cfg, ui, onPick: (c) => open(add(c.url, 'recent', { name: c.name, desc: c.desc, icon: c.icon, web: c.web, hint: c.hint })) }) : null
+  const cardMeta = (c) => ({ id: c.id, name: c.name, desc: c.desc, icon: c.icon, web: c.web, hint: c.hint, hintValue: c.hintValue })
+  const registry = cfg.registry ? registryPanel({ cfg, ui, linkOf: (c) => shareLink({ custom: true, id: c.id, url: c.url }), onPick: (c) => open(add(c.url, 'recent', cardMeta(c))) }) : null
 
   main.append(
     h('div', { class: 'mcpi-top' },
       h('div', { class: 'mcpi-id' }, el.name, el.url),
       h('div', { class: 'mcpi-top-actions' }, el.status, el.level, ping, reconnect)),
-    el.info, el.auth, el.instr, el.asks, el.tabs,
+    el.info, el.auth, el.share, el.instr, el.asks, el.tabs,
     h('div', { class: 'mcpi-body' }, el.list, el.select, el.pane))
   root.replaceChildren(el.servers, ...(registry ? [registry.el] : []), main)
   renderServers()
@@ -389,8 +421,8 @@ export function mount(root, options) {
     const s = add(pending.url, 'recent', { name: pending.name })
     current = s
     conns[s.key] = conns[s.key] || newConn(s)
-    setQuery('?url=' + encodeURIComponent(s.url))
     s.wantsAuth = true
+    setQuery(linkOf(s))
     renderHead()
     selectTab('tools')
     revealOnArrival(regReady)
@@ -404,8 +436,32 @@ export function mount(root, options) {
     setQuery('')
     root.prepend(h('p', { class: 'mcpi-auth-note mcpi-notice', role: 'alert', text: ui.oauthLost }))
   } else {
-    const fromUrl = q.get('url') ? add(q.get('url'), 'recent', {}) : null
-    const first = fromUrl || servers.find((s) => s.key === q.get('server'))
-    if (first) { const done = select(first); revealOnArrival(Promise.all([regReady, done])) }
+    arrive(readLink(q))
+  }
+
+  /*
+   * Arriving by a link (share.js): ?s=, ?r= or ?u=, with &oauth or &h= when it needs sign-in.
+   * &oauth only shows the sign-in button. The redirect starts when the person presses it, never from a link alone.
+   */
+  async function arrive(link) {
+    let s = null
+    if (link.registry && cfg.registry) {
+      let card = null
+      try {
+        const res = await fetch(registryEntry(cfg.registry, link.registry))
+        if (res.ok) { const json = await res.json(); card = registryCard(json.server || json, { http: location.protocol === 'http:' }) }
+      } catch (e) { /* not found below */ }
+      if (!card) { root.prepend(h('p', { class: 'mcpi-auth-note mcpi-notice', role: 'alert', text: ui.regMissing })); setQuery(''); return }
+      s = add(card.url, 'recent', cardMeta(card))
+    } else if (link.url) {
+      s = add(link.url, 'recent', {})
+    } else if (link.server) {
+      s = servers.find((x) => x.key === link.server) || null
+    }
+    if (!s) return
+    if (s.custom && link.auth === 'oauth') s.wantsAuth = true
+    if (s.custom && link.auth === 'header' && !s.headers) { s.authHeader = link.header; save() }
+    const done = select(s)
+    revealOnArrival(Promise.all([regReady, done]))
   }
 }

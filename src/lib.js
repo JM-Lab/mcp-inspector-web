@@ -24,18 +24,24 @@ export function cleanUrl(text) {
   } catch (e) { return null }
 }
 
-/** The one remote of a registry entry a browser can use: streamable-http, https, no template variables. */
-export function pickRemote(sv) {
-  return ((sv && sv.remotes) || []).find((r) => r && r.type === 'streamable-http' && /^https:\/\//.test(r.url || '') && !/[{}]/.test(r.url)) || null
+/**
+ * The one remote of a registry entry a browser can use: streamable-http, https, no template variables.
+ * opts.http also takes http:// remotes, for a page that is itself on http (a local run), where the browser allows them.
+ */
+export function pickRemote(sv, opts) {
+  const scheme = opts && opts.http ? /^https?:\/\// : /^https:\/\//
+  return ((sv && sv.remotes) || []).find((r) => r && r.type === 'streamable-http' && scheme.test(r.url || '') && !/[{}]/.test(r.url)) || null
 }
 
 /** A registry entry as one card. null when it has no usable remote. */
-export function registryCard(sv) {
-  const remote = pickRemote(sv)
+export function registryCard(sv, opts) {
+  const remote = pickRemote(sv, opts)
   if (!remote) return null
   const need = (remote.headers || []).find((x) => x && (x.isRequired || x.isSecret))
   const icon = ((sv.icons || []).find((i) => i && /^https:\/\//.test(i.src || '')) || {}).src || ''
-  return { id: sv.name, name: sv.title || sv.name, desc: sv.description || '', url: remote.url, hint: (need && need.name) || '', icon, web: sv.websiteUrl || '' }
+  /* The registry may say what goes in the header, like "Bearer ${API_KEY}". It becomes the placeholder of the value field. */
+  const hintValue = need && need.value ? String(need.value).replace(/\$\{([^}]+)\}/g, '<$1>') : ''
+  return { id: sv.name, name: sv.title || sv.name, desc: sv.description || '', url: remote.url, hint: (need && need.name) || '', hintValue, icon, web: sv.websiteUrl || '' }
 }
 
 /** Many cards. Each address once, at most max cards. */
@@ -71,7 +77,7 @@ export function iconCandidates(s) {
   return out
 }
 
-const slim = (s) => ({ url: s.url, name: s.name || hostOf(s.url), desc: s.desc || '', icon: s.icon || '', web: s.web || '', hint: s.hint || '', headers: s.headers || null })
+const slim = (s) => ({ url: s.url, id: s.id || '', authHeader: s.authHeader || '', name: s.name || hostOf(s.url), desc: s.desc || '', icon: s.icon || '', web: s.web || '', hint: s.hint || '', hintValue: s.hintValue || '', headers: s.headers || null })
 
 /** Puts an item first. An item with the same address is replaced, and past cap the oldest (last) drop off. */
 export function pushFront(list, item, cap = CAP) {
