@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP Inspector Web</title>
+<meta name="description" content="An MCP Inspector that runs entirely in the browser. Connect to a remote MCP server, run its tools, prompts and resources, and read every message.">
+<link rel="stylesheet" href="mcp-inspector.css">
+<style>
+  :root{color-scheme:light dark}
+  body{margin:0;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:Canvas;color:CanvasText}
+  main{max-width:72rem;margin:0 auto;padding:1.5rem 1rem 3rem}
+  h1{margin:0;font-size:1.8rem}
+  p.lede{margin:.4rem 0 1.4rem;opacity:.75}
+  a{color:inherit}
+</style>
+</head>
+<body>
+<main>
+  <h1>MCP Inspector Web</h1>
+  <p class="lede">Test a remote MCP server in your browser, with nothing to install. <a href="https://github.com/JM-Lab/mcp-inspector-web">Source on GitHub</a></p>
+  <div id="mcpi"><noscript>This page needs JavaScript.</noscript></div>
+</main>
+<script>window.MCP_INSPECTOR = { lang: navigator.language.startsWith('ko') ? 'ko' : 'en', featured: 'featured.json' }</script>
+<script src="mcp-inspector.js" defer></script>
+</body>
+</html>

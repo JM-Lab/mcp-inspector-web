@@ -1,0 +1,155 @@
+{
+ "asOf": "2026-11-24",
+ "servers": [
+  {
+   "id": "com.microsoft/microsoft-learn-mcp",
+   "name": "Microsoft Learn",
+   "desc": "Official Microsoft Learn MCP Server, real-time, trusted docs & code samples for AI and LLMs.",
+   "url": "https://learn.microsoft.com/api/mcp",
+   "hint": "",
+   "icon": "",
+   "web": "https://github.com/MicrosoftDocs/mcp",
+   "open": true
+  },
+  {
+   "id": "co.huggingface/hf-mcp-server",
+   "name": "Hugging Face",
+   "desc": "Connect to Hugging Face Hub and thousands of Gradio AI Applications",
+   "url": "https://huggingface.co/mcp",
+   "hint": "",
+   "icon": "",
+   "web": "",
+   "open": true
+  },
+  {
+   "id": "io.github.upstash/context7",
+   "name": "Context7",
+   "desc": "Up-to-date docs for AI agents",
+   "url": "https://mcp.context7.com/mcp",
+   "hint": "",
+   "icon": "https://raw.githubusercontent.com/upstash/context7/master/public/icon.png",
+   "web": "https://context7.com",
+   "open": true
+  },
+  {
+   "id": "ai.exa/exa",
+   "name": "Exa",
+   "desc": "Official Exa MCP for web search, content fetching, and multi-step research.",
+   "url": "https://mcp.exa.ai/mcp",
+   "hint": "",
+   "icon": "https://exa.ai/images/logo/exa-logomark-blue.svg",
+   "web": "https://exa.ai",
+   "open": true
+  },
+  {
+   "id": "io.github.github/github-mcp-server",
+   "name": "GitHub",
+   "desc": "Connect AI assistants to GitHub - manage repos, issues, PRs, and workflows through natural language.",
+   "url": "https://api.githubcopilot.com/mcp/",
+   "hint": "Authorization",
+   "icon": "https://github.com/favicon.ico",
+   "web": "",
+   "open": false
+  },
+  {
+   "id": "com.notion/mcp",
+   "name": "Notion",
+   "desc": "Official Notion MCP server",
+   "url": "https://mcp.notion.com/mcp",
+   "hint": "",
+   "icon": "https://www.notion.so/images/favicon.ico",
+   "web": "",
+   "open": false
+  },
+  {
+   "id": "app.linear/linear",
+   "name": "Linear",
+   "desc": "Find and manage issues, projects, and documents in your Linear workspace.",
+   "url": "https://mcp.linear.app/mcp",
+   "hint": "",
+   "icon": "https://static.linear.app/integrations/mcp/icon.svg",
+   "web": "https://linear.app",
+   "open": false
+  },
+  {
+   "id": "io.github.getsentry/sentry-mcp",
+   "name": "Sentry",
+   "desc": "MCP server for Sentry - error monitoring, issue tracking, and debugging for AI assistants",
+   "url": "https://mcp.sentry.dev/mcp",
+   "hint": "",
+   "icon": "https://mcp.sentry.dev/sentry-icon.png",
+   "web": "https://mcp.sentry.dev",
+   "open": false
+  },
+  {
+   "id": "com.stripe/mcp",
+   "name": "Stripe",
+   "desc": "MCP server integrating with Stripe - tools for customers, products, payments, and more.",
+   "url": "https://mcp.stripe.com",
+   "hint": "",
+   "icon": "https://stripe.com/favicon.ico",
+   "web": "",
+   "open": false
+  },
+  {
+   "id": "com.atlassian/atlassian-mcp-server",
+   "name": "Atlassian",
+   "desc": "Connect to Atlassian Jira, Confluence, Loom, and more to search, create, and manage your work.",
+   "url": "https://mcp.atlassian.com/v2/mcp",
+   "hint": "",
+   "icon": "",
+   "web": "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/getting-started-with-the-atlassian-remote-mcp-server/",
+   "open": false
+  },
+  {
+   "id": "com.figma.mcp/mcp",
+   "name": "Figma",
+   "desc": "The Figma MCP server brings Figma design context directly into your AI workflow.",
+   "url": "https://mcp.figma.com/mcp",
+   "hint": "",
+   "icon": "https://www.figma.com/favicon.ico",
+   "web": "",
+   "open": false
+  },
+  {
+   "id": "com.supabase/mcp",
+   "name": "Supabase",
+   "desc": "MCP server for interacting with the Supabase platform",
+   "url": "https://mcp.supabase.com/mcp",
+   "hint": "",
+   "icon": "https://supabase.com/favicon/favicon-16x16.png",
+   "web": "https://supabase.com/mcp",
+   "open": false
+  },
+  {
+   "id": "com.canva.mcp/mcp",
+   "name": "Canva",
+   "desc": "Create, search, edit, and export designs and assets from Canva.",
+   "url": "https://mcp.canva.com/mcp",
+   "hint": "",
+   "icon": "https://www.canva.com/favicon.ico",
+   "web": "",
+   "open": false
+  },
+  {
+   "id": "com.vercel/vercel-mcp",
+   "name": "Vercel",
+   "desc": "An MCP server for Vercel",
+   "url": "https://mcp.vercel.com",
+   "hint": "",
+   "icon": "https://vercel.com/favicon.ico",
+   "web": "",
+   "open": false
+  },
+  {
+   "id": "com.paypal.mcp/mcp",
+   "name": "PayPal",
+   "desc": "PayPal MCP server provides access to PayPal services and operations for AI assistants",
+   "url": "https://mcp.paypal.com/mcp",
+   "hint": "Authorization",
+   "icon": "https://www.paypal.com/favicon.ico",
+   "web": "",
+   "open": false
+  }
+ ]
+}

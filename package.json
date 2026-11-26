@@ -1,0 +1,32 @@
+{
+  "name": "mcp-inspector-web",
+  "version": "0.1.0",
+  "description": "An MCP Inspector that runs entirely in the browser. Connect to a remote MCP server, run its tools, prompts and resources, and read every message.",
+  "license": "MIT",
+  "type": "module",
+  "keywords": ["mcp", "model-context-protocol", "mcp-inspector", "mcp-client", "mcp-registry", "browser"],
+  "engines": { "node": ">=22.18" },
+  "exports": {
+    ".": "./src/index.js",
+    "./auto": "./src/auto.js",
+    "./lib": "./src/lib.js",
+    "./conn": "./src/conn.js",
+    "./style.css": "./src/style.css",
+    "./dist/*": "./dist/*"
+  },
+  "files": ["src", "dist", "scripts/featured.js", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "node scripts/build.js",
+    "demo": "node scripts/build.js && node scripts/serve.js",
+    "featured": "node scripts/featured.js --out demo/featured.json",
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "^2.4.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/server": "^2.4.0",
+    "esbuild": "^0.27.7",
+    "zod": "^4.0.0"
+  }
+}
