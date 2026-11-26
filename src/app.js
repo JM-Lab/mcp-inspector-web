@@ -57,6 +57,14 @@ export function mount(root, options) {
   let current = null
   let tab = 'tools'
   let token = 0
+  /*
+   * A link with &to=<client>: once that server connects here, hand it on to the AI client (the add-to-ai popup, its one-click
+   * link tried at once). Kept in sessionStorage too, since an OAuth sign-in leaves the page and comes back without the query.
+   */
+  let handoff = null
+  const HANDOFF = P + ':handoff'
+  const keepHandoff = (s, to) => { handoff = { key: s.key, to }; try { sessionStorage.setItem(HANDOFF, JSON.stringify({ url: s.url, to })) } catch (e) { /* storage blocked */ } }
+  const dropHandoff = () => { handoff = null; try { sessionStorage.removeItem(HANDOFF) } catch (e) { /* storage blocked */ } }
 
   const el = {
     servers: h('div', { class: 'mcpi-servers' }),
@@ -201,7 +209,7 @@ export function mount(root, options) {
   const pageUrl = () => cfg.pageUrl || location.origin + location.pathname
   const shareLink = (s) => pageUrl() + linkOf(s)
   /* The server as you set it up here, token included: the popup puts it in what you copy (and can take it out). */
-  const addTo = (s) => openAddToAi({ url: s.url, name: s.name, id: s.id, headers: s.headers, authHeader: s.authHeader, hint: s.hint, oauth: !!s.wantsAuth && !s.headers }, { lang: cfg.lang, ui: cfg.addToAiUi, root })
+  const addTo = (s, extra) => openAddToAi({ url: s.url, name: s.name, id: s.id, headers: s.headers, authHeader: s.authHeader, hint: s.hint, oauth: !!s.wantsAuth && !s.headers }, Object.assign({ lang: cfg.lang, ui: cfg.addToAiUi, root }, extra))
   /* Redrawn only when the link changes, so an open box stays open. */
   function renderShare() {
     const link = shareLink(current)
@@ -228,6 +236,12 @@ export function mount(root, options) {
       const live = await c.connect(opts)
       const old = data[server.key] || {}
       data[server.key] = Object.assign({}, old, live)
+      /* Connected, so the server is known to answer: now it can go on to the AI client the link named. */
+      if (handoff && handoff.key === server.key && c.state === 'connected') {
+        const to = handoff.to
+        dropHandoff()
+        setTimeout(() => addTo(server, { client: to, verified: true, autoOpen: true }), 0)
+      }
     } catch (e) {
       if (current === server) { renderHead(); if (!quiet && !itemsOf(tab).length) selectTab(tab) }
       throw e
@@ -422,6 +436,7 @@ export function mount(root, options) {
   const pending = returned ? auth.takePending() : null
   if (pending) {
     const s = add(pending.url, 'recent', { name: pending.name })
+    try { const kept = JSON.parse(sessionStorage.getItem(HANDOFF) || 'null'); if (kept && kept.url === s.url) handoff = { key: s.key, to: kept.to } } catch (e) { /* none */ }
     current = s
     conns[s.key] = conns[s.key] || newConn(s)
     s.wantsAuth = true
@@ -470,6 +485,7 @@ export function mount(root, options) {
     if (!s) return
     if (s.custom && link.auth === 'oauth') s.wantsAuth = true
     if (s.custom && link.auth === 'header' && !s.headers) { s.authHeader = link.header; save() }
+    if (link.to) keepHandoff(s, link.to)
     const done = select(s)
     revealOnArrival(Promise.all([regReady, done]))
   }

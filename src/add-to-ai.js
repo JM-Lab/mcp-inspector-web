@@ -20,7 +20,9 @@
  *              ({ name: value }, put in unless opts.secret is false), oauth that it signs in with OAuth
  *     opts     { lang: 'en' | 'ko', ui: { ...strings }, root: element to put the popup in (default document.body), label,
  *                registryApi: the registry API (default the official one), icons: false or { clientId: url },
- *                mobile: true or false to override the phone or tablet check }
+ *                mobile: true or false to override the phone or tablet check,
+ *                client: the client to open on, verified: say the server was checked and answers,
+ *                autoOpen: try that client's one-click link at once (the browser may ask, or need the button pressed) }
  *
  * The popup groups the clients (terminal agents, editors and IDEs, chat apps) under a search box.
  * On a phone or tablet only the chat apps (their websites) can be set up. The popup says so at the top, lists them first,
@@ -52,6 +54,7 @@ const STRINGS = {
     secretIn: 'Your own token is in this, as you set it up here. It works as it is: keep it to yourself.',
     withSecret: 'Put in my token (as set up here)', withSecretHint: 'Off: <token> stands where it goes, for sharing with others.',
     oauth: 'This server signs in with OAuth. {v} asks you to sign in when it first connects.',
+    verified: '{s} answers here: its tools are listed. Add it to {v}:',
     computerOnly: 'Computer only', getIt: 'No {v} yet? Get it',
     notOpened: 'Nothing opened? {v} may not be installed, or the browser held the link back. Get {v}, or add it by hand below.',
     mobileBanner: 'You are on a phone or tablet. Only the chat apps can be set up from here, on their websites. Terminal agents and editors run on a computer: their setup is shown so you can copy it and send it to yourself.',
@@ -87,6 +90,7 @@ const STRINGS = {
     secretIn: '여기서 설정한 내 토큰이 들어 있습니다. 그대로 붙이면 됩니다. 다른 사람과 나누지 마세요.',
     withSecret: '내 토큰 넣기 (여기서 설정한 대로)', withSecretHint: '끄면 토큰 자리에 <token> 이 들어갑니다. 다른 사람에게 줄 때 쓰세요.',
     oauth: '이 서버는 OAuth 로 로그인합니다. {v} 가 처음 연결할 때 로그인을 묻습니다.',
+    verified: '{s} 가 여기서 응답했습니다 (도구 목록 확인). {v} 에 추가하세요:',
     computerOnly: '컴퓨터에서만', getIt: '{v} 가 없다면 받기',
     notOpened: '아무것도 열리지 않았나요? {v} 가 설치되어 있지 않거나 브라우저가 링크를 막았을 수 있습니다. {v} 를 받거나, 아래에서 직접 넣으세요.',
     mobileBanner: '휴대폰이나 태블릿입니다. 여기서는 채팅 앱만 웹사이트에서 추가할 수 있습니다. 터미널 에이전트와 에디터는 컴퓨터에서 돌아가서, 설정을 복사해 컴퓨터로 보내 쓰도록 보여 줍니다.',
@@ -415,6 +419,7 @@ const CSS = `.mcpi-addto,.mcpi-addto-trigger{--a-ink:var(--mcpi-ink,#16181d);--a
 .mcpi-addto-secret input{margin-top:.2rem}
 .mcpi-addto-secret span{display:grid}
 .mcpi-addto-secret small{color:var(--a-mute);font-size:.74rem}
+.mcpi-addto-ok{margin:.8rem 0 0;padding:.6rem .75rem;border:1px solid var(--mcpi-accent3,#2e7d4f);border-radius:8px;color:var(--mcpi-accent3,#2e7d4f);font-size:.82rem;font-weight:700}
 .mcpi-addto-mobile{margin:.8rem 0 0;padding:.6rem .75rem;border-radius:8px;background:var(--a-tint);font-size:.8rem}
 .mcpi-addto-away{margin:0;padding:.55rem .7rem;border:1px solid var(--a-warn);border-radius:8px;color:var(--a-warn);font-size:.8rem}
 .mcpi-addto-tile.is-away{opacity:.62}
@@ -522,6 +527,7 @@ export function openAddToAi(server, opts = {}) {
   let clients = clientsFor(server, { secret: withSecret })
   const header = headerOf(server)
   const title = server.name || hostOf(server.url)
+  const asked = opts.client ? clients.find((c) => c.id === opts.client) : null
 
   const copyable = (text) => {
     const b = el('button', { type: 'button', class: 'mcpi-addto-copy', text: t.copy, 'data-copy': text })
@@ -611,14 +617,27 @@ export function openAddToAi(server, opts = {}) {
       el('div', null, el('h2', { text: fill(t.title, { v: title }) }), el('code', { text: server.url })),
       el('button', { type: 'button', class: 'mcpi-addto-close', text: t.close, onclick: () => dialog.close() })),
     mobile ? el('p', { class: 'mcpi-addto-mobile', text: t.mobileBanner }) : null,
+    asked && opts.verified ? el('p', { class: 'mcpi-addto-ok', role: 'status', text: fill(t.verified, { s: title, v: asked.label }) }) : null,
     el('p', { class: 'mcpi-addto-label', text: t.pick }), search, tiles, none, secretBox, pane)
   dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close() })
   dialog.addEventListener('close', () => dialog.remove())
   ;(opts.root || document.body).append(dialog)
-  /* The client picked last, unless this is a phone and it needs a computer. */
+  /* The client asked for (a link's &to=), else the one picked last, unless this is a phone and it needs a computer. */
   const last = clients.find((c) => c.id === remembered())
-  choose(last && !(mobile && !worksOnPhone(last)) ? last.id : order[0].id)
+  choose(asked ? asked.id : last && !(mobile && !worksOnPhone(last)) ? last.id : order[0].id)
   dialog.showModal()
+  /* The picked tile may sit further down the list: bring it into view. */
+  const on = tiles.querySelector('.mcpi-addto-tile.is-on')
+  if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest' })
+  /*
+   * Handing on: try the one-click link at once. The browser may open the app, ask first, or do nothing without a press;
+   * the button stays there, and when nothing opens the popup says so and shows the setup to add by hand.
+   * A web page link (Kiro, Visual Studio) would be a blocked pop-up, so it waits for the press.
+   */
+  if (asked && opts.autoOpen && asked.kind === 'link' && !mobile && !/^https:/.test(asked.link)) {
+    const go = pane.querySelector('a.mcpi-addto-go')
+    if (go) go.click()
+  }
   return dialog
 }
 

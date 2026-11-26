@@ -29,8 +29,8 @@ test('readLink: reads back what linkOf writes, and drops what is not valid', () 
   const read = (q) => readLink(new URLSearchParams(q))
   const back = (server) => read(linkOf(server))
   assert.equal(back(custom({ url: 'https://a.example/mcp?k=1&j=2' })).url, 'https://a.example/mcp?k=1&j=2')
-  assert.deepEqual(read('?r=io.github.x/y&oauth'), { server: '', registry: 'io.github.x/y', url: '', auth: 'oauth', header: '' })
-  assert.deepEqual(read('?u=a.example/mcp&h=X-Key'), { server: '', registry: '', url: 'https://a.example/mcp', auth: 'header', header: 'X-Key' })
+  assert.deepEqual(read('?r=io.github.x/y&oauth'), { server: '', registry: 'io.github.x/y', url: '', auth: 'oauth', header: '', to: '' })
+  assert.deepEqual(read('?u=a.example/mcp&h=X-Key'), { server: '', registry: '', url: 'https://a.example/mcp', auth: 'header', header: 'X-Key', to: '' })
   assert.equal(read('?u=localhost:3000/mcp').url, 'https://localhost:3000/mcp', 'host:port is not a scheme')
   assert.equal(read('?u=a.example/mcp&h=bad name').header, 'Authorization')
   assert.equal(read('?u=javascript:alert(1)').url, '')
@@ -40,11 +40,20 @@ test('readLink: reads back what linkOf writes, and drops what is not valid', () 
 
 test('readLink: the long keys still work, since links with them are already out', () => {
   const read = (q) => readLink(new URLSearchParams(q))
-  assert.deepEqual(read('?url=https://a.example/mcp&auth=header&header=X-Key'), { server: '', registry: '', url: 'https://a.example/mcp', auth: 'header', header: 'X-Key' })
+  assert.deepEqual(read('?url=https://a.example/mcp&auth=header&header=X-Key'), { server: '', registry: '', url: 'https://a.example/mcp', auth: 'header', header: 'X-Key', to: '' })
   assert.equal(read('?url=https://a.example/mcp&auth=header').header, 'Authorization', 'header defaults to Authorization')
   assert.equal(read('?registry=io.github.x/y&auth=oauth').auth, 'oauth')
   assert.equal(read('?server=docs').server, 'docs')
   assert.equal(read('?auth=token').auth, '')
+})
+
+test('readLink: &to= names the AI client to hand the server on to', () => {
+  const read = (q) => readLink(new URLSearchParams(q))
+  assert.equal(read('?u=a.example/mcp&to=vscode').to, 'vscode')
+  assert.equal(read('?r=io.x/y&to=claude-code').to, 'claude-code')
+  assert.equal(read('?u=a.example/mcp&to=../evil').to, '', 'only a client id')
+  assert.equal(read('?u=a.example/mcp').to, '')
+  assert.equal(mergeQuery('?lang=ko&u=a.example/mcp&to=vscode', '?u=a.example/mcp'), '?lang=ko&u=a.example/mcp', 'to is dropped once read, so a reload does not hand on again')
 })
 
 test('mergeQuery: replaces only the keys this page owns', () => {

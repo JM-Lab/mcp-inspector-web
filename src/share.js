@@ -6,6 +6,7 @@
  *                           ?r=<name>                 a server from the MCP Registry
  *                           ?u=<address>              any other server (https:// is left out)
  *                         followed by &oauth, or &h=<header name>, when it needs sign-in.
+ *                         &to=<client> (an add-to-ai.js client id) hands the server on to that AI client once it connects.
  *   readLink(params)      the same query read back: { server, registry, url, auth, header } (only what is valid).
  *                         The long keys (?server= ?registry= ?url= &auth= &header=) are read too, since links with them are already out.
  *   registryEntry(base, name)   the address the registry answers one server at
@@ -17,6 +18,8 @@ import { cleanUrl } from './lib.js'
 
 /* A header name as HTTP allows it (RFC 9110 token characters). Anything else in a link is ignored. */
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}$/
+/* An AI client id from add-to-ai.js (claude-code, vscode, …), for &to=. */
+const CLIENT_ID = /^[a-z0-9-]{1,40}$/
 /* Registry names look like io.github.owner/server (reverse DNS, a slash, a name). */
 const REGISTRY_NAME = /^[A-Za-z0-9.-]+\/[A-Za-z0-9._-]+$/
 
@@ -34,7 +37,7 @@ export function linkOf(server) {
 }
 
 /* The query keys this page owns, short and long. Others (a host page's own, like ?lang=) are left as they are. */
-export const OWN_KEYS = ['s', 'r', 'u', 'h', 'oauth', 'server', 'registry', 'url', 'auth', 'header', 'code', 'state', 'error', 'error_description', 'error_uri', 'iss']
+export const OWN_KEYS = ['s', 'r', 'u', 'h', 'oauth', 'to', 'server', 'registry', 'url', 'auth', 'header', 'code', 'state', 'error', 'error_description', 'error_uri', 'iss']
 
 /** The page query with ours replaced by `ours` ('' clears ours). */
 export function mergeQuery(search, ours) {
@@ -69,6 +72,7 @@ export function readLink(params) {
     url: addressOf(one('u', 'url')),
     auth,
     header,
+    to: CLIENT_ID.test(get('to')) ? get('to') : '',
   }
 }
 

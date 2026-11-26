@@ -410,6 +410,37 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
   })
 
+  await t.test('&to= hands a server on to an AI client only once it connects here', async () => {
+    const popup = `document.querySelector('dialog.mcpi-addto')`
+    /* It connects: the popup opens on that client, says the server answered, and the link leaves the address bar. */
+    await open('?s=local&to=cursor')
+    await b.until(`$t.status() === 'Connected'`)
+    await b.until(popup)
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail').dataset.client`), 'cursor')
+    assert.match(await b.run(`document.querySelector('.mcpi-addto-ok').textContent`), /answers here/)
+    assert.doesNotMatch(await b.run('location.search'), /to=/)
+    /* Its one-click link was tried at once; with no Cursor here, nothing opens and the popup says so. */
+    await b.until(`!document.querySelector('.mcpi-addto-detail .mcpi-addto-away').hidden`, 6000)
+    await b.run(popup + '.close()')
+    await b.until('!' + popup, 2000)
+
+    /* It does not connect (it needs a token not given): nothing is handed on. */
+    await b.run('sessionStorage.clear()')
+    await open('?u=' + mcp.base + '/locked&to=vscode')
+    await b.until(`$t.status() === 'Failed'`)
+    await new Promise((r) => setTimeout(r, 300))
+    assert.equal(await b.run(popup), null, 'no popup for a server that did not answer')
+
+    /* OAuth: the sign-in leaves the page and comes back; once connected, the server goes on to the client the link named. */
+    await open('?u=' + mcp.base + '/oauth-mcp&oauth&to=claude-code')
+    await b.until(`$t.status() === 'Failed'`)
+    await b.run(`$t.button('Connect with OAuth (PKCE)').click()`)
+    await b.until(`document.querySelector('.mcpi-status')?.textContent === 'Connected' && document.querySelector('dialog.mcpi-addto')`, 20000)
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail').dataset.client`), 'claude-code')
+    await b.run(popup + '.close()')
+    await b.until('!' + popup, 2000)
+  })
+
   await t.test('with no network for icons, cards and the popup show initials on a color of their own', async () => {
     /* The local servers have no https icon at all: their cards already make one from the name. */
     await open()
