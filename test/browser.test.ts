@@ -52,6 +52,9 @@ before(async () => {
 <mcp-add-to-ai id="missing" registry="io.test/nothing" registry-api="/registry/v0/servers"></mcp-add-to-ai>
 <mcp-add-to-ai id="retired" registry="io.test/retired" registry-api="/registry/v0/servers"></mcp-add-to-ai>
 <div id="host"></div><script src="/mcp-add-to-ai.js"></script>`
+  /* The module itself (mount and the rest), as a page that imports it would use it. */
+  const lib = (await build({ entryPoints: ['src/index.js'], bundle: true, format: 'iife', globalName: 'MCPI', platform: 'browser', write: false, logLevel: 'silent' })).outputFiles[0].text
+  const libPage = `<!doctype html><html lang="en"><meta charset="utf-8"><title>module</title><div id="x"></div><script src="/lib.js"></script>`
   /* A stand-in for the MCP Registry: one server by name, and an empty list for the panel. */
   const entry = { server: { name: 'io.test/local', title: 'Registry test server', description: 'from the registry', remotes: [{ type: 'streamable-http', url: mcp.base + '/from-registry' }] } }
   const locked = { server: { name: 'io.test/locked', title: 'Locked', remotes: [{ type: 'streamable-http', url: mcp.base + '/token-registry', headers: [{ name: 'x-test-key', value: '\${KEY}', isRequired: true, isSecret: true }] }] } }
@@ -70,6 +73,8 @@ before(async () => {
       const body = path === '/registry/v0/servers' ? { servers: [], metadata: {} } : registry[name as keyof typeof registry]
       res.writeHead(body ? 200 : 404, { 'content-type': 'application/json' }); res.end(JSON.stringify(body || { error: 'not found' })); return
     }
+    if (path === '/lib.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(lib); return }
+    if (path === '/lib.html') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(libPage); return }
     if (path === '/mcp-add-to-ai.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(addTo); return }
     if (path === '/add-to-ai.html') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(addToPage); return }
     if (path === '/mcp-inspector.css') { res.writeHead(200, { 'content-type': 'text/css' }); res.end(css); return }
@@ -241,6 +246,19 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.match(await b.run('location.search'), /^\?lang=en&u=http:\/\/127\.0\.0\.1:\d+\/token&h=x-test-key$/, 'rewritten in the short form')
   })
 
+  await t.test('mount returns destroy, which closes its connections and empties the element', async () => {
+    await b.go(origin + '/lib.html')
+    await b.run(HELPERS)
+    await b.run(`window.inst = MCPI.mount(document.querySelector('#x'), { registry: null, servers: [{ key: 'local', name: 'Local', url: ${JSON.stringify(mcp.base + '/mcp')} }], syncUrl: false }); document.querySelector('.mcpi-server').click(); true`)
+    await b.until(`$t.status() === 'Connected'`)
+    await b.run(`inst.destroy()`)
+    assert.equal(await b.run(`document.querySelector('#x').childElementCount`), 0)
+    assert.equal(await b.run(`document.querySelector('#x').classList.contains('mcpi')`), false)
+    /* Mounted again on the same element, it starts fresh. */
+    await b.run(`window.inst = MCPI.mount(document.querySelector('#x'), { registry: null, servers: [{ key: 'local', name: 'Local', url: ${JSON.stringify(mcp.base + '/mcp')} }], syncUrl: false }); true`)
+    assert.equal(await b.run(`document.querySelectorAll('#x .mcpi-server').length >= 1 && document.querySelector('.mcpi-main').hidden`), true)
+  })
+
   await t.test('every card has a link button that copies its link, and an AI button, and neither opens it', async () => {
     await open()
     const tool = (key: string, sel: string) => `[...document.querySelectorAll('.mcpi-card-wrap')].find((w) => w.querySelector('.mcpi-server')?.dataset.key === ${JSON.stringify(key)}).querySelector('${sel}')`
@@ -354,6 +372,45 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     await b.until(`!document.querySelector('.mcpi-addto-detail .mcpi-addto-away').hidden`, 6000)
     assert.equal(await b.run(`document.querySelector('.mcpi-addto-manual').open`), true)
     assert.match(await b.run(`document.querySelector('.mcpi-addto-get').href`), /^https:\/\/code\.visualstudio\.com\//)
+    /* It says to open the app first and try again, with Try again and where to get it right there. */
+    const away = `document.querySelector('.mcpi-addto-detail .mcpi-addto-away')`
+    assert.match(await b.run(away + '.textContent'), /open it first, then press Try again/)
+    assert.match(await b.run(away + `.querySelector('a.mcpi-addto-get').href`), /^https:\/\/code\.visualstudio\.com\//)
+    await b.run(away + `.querySelector('.mcpi-addto-again').click()`)
+    assert.equal(await b.run(away + '.hidden'), true, 'Try again presses the link once more')
+    await b.until(`!${away}.hidden`, 6000)
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+
+    /* Keys: the search box has focus, arrows move through the tiles and pick, and closing gives focus back to the opener. */
+    await b.run(`(() => { const o = document.createElement('button'); o.id = 'opener'; o.textContent = 'open'; document.body.append(o); o.focus(); MCPAddToAI.openAddToAi({ url: 'https://x.example/mcp' }, { mobile: false, client: 'codex' }) })()`)
+    assert.equal(await b.run(`document.activeElement.classList.contains('mcpi-addto-search')`), true)
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-addto-tile[tabindex="0"]').length`), 1, 'one tile in the Tab order: the picked one')
+    const key = (k: string) => b.run(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: '${k}', bubbles: true }))`)
+    await b.run(`document.querySelector('.mcpi-addto-tile[data-client=codex]').focus()`)
+    await key('ArrowRight')
+    assert.equal(await b.run(`document.activeElement.dataset.client`), 'gemini')
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail').dataset.client`), 'gemini', 'moving picks')
+    await key('ArrowLeft'); await key('ArrowLeft')
+    assert.equal(await b.run(`document.activeElement.dataset.client`), 'claude-code')
+    await key('End')
+    assert.equal(await b.run(`document.activeElement.dataset.client`), 'manus')
+    await key('ArrowDown')
+    assert.equal(await b.run(`document.activeElement.dataset.client`), 'claude-code', 'it wraps around')
+    /* Searching narrows what the arrows walk through. */
+    await b.run(`(() => { const i = document.querySelector('.mcpi-addto-search'); i.value = 'vs'; i.dispatchEvent(new Event('input')) })()`)
+    await b.run(`document.querySelector('.mcpi-addto-tile[data-client=vscode]').focus()`)
+    await key('ArrowRight')
+    assert.equal(await b.run(`document.activeElement.dataset.client`), 'vscode-insiders')
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+    assert.equal(await b.run(`document.activeElement.id`), 'opener')
+
+    /* With your own token in, an app link carries it: the popup says not to pass that link on. Off, it says nothing. */
+    await b.run(`MCPAddToAI.openAddToAi({ url: 'https://x.example/mcp', headers: { Authorization: 'Bearer abc' } }, { mobile: false, client: 'lmstudio' })`)
+    assert.match(await b.run(`document.querySelector('[data-warn=link-secret]').textContent`), /carries your token to LM Studio/)
+    await b.run(`document.querySelector('.mcpi-addto-secret input').click()`)
+    assert.equal(await b.run(`!!document.querySelector('[data-warn=link-secret]')`), false)
     await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
     await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
 

@@ -25,14 +25,24 @@
     "node": ">=22.18"
   },
   "exports": {
-    ".": "./src/index.js",
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
     "./auto": "./src/auto.js",
-    "./add-to-ai": "./src/add-to-ai.js",
-    "./lib": "./src/lib.js",
+    "./add-to-ai": {
+      "types": "./src/add-to-ai.d.ts",
+      "default": "./src/add-to-ai.js"
+    },
+    "./lib": {
+      "types": "./src/lib.d.ts",
+      "default": "./src/lib.js"
+    },
     "./conn": "./src/conn.js",
     "./style.css": "./src/style.css",
     "./dist/*": "./dist/*"
   },
+  "types": "src/index.d.ts",
   "unpkg": "dist/mcp-inspector.js",
   "jsdelivr": "dist/mcp-inspector.js",
   "bin": {
@@ -45,6 +55,7 @@
     "demo/featured.json",
     "scripts/featured.js",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {

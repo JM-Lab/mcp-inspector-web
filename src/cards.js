@@ -4,10 +4,11 @@
  *   cardOf(server, { ui, onOpen, onRemove, link, onAdd })   a pressable card, with × for servers kept in this browser
  *   cardTools(link, onAdd, ui)                  the small buttons on a card, which never open it:
  *                                               copy the link that opens it here, and add it to an AI client (add-to-ai.js)
+ *   shareBox(link, ui, onAdd)                   what the open server's Share box holds: the link to copy, and the AI client button
  */
 import { h, copyButton } from './dom.js'
 import { hostOf, iconCandidates, countsText } from './lib.js'
-import { initialsOf, hueOf } from './add-to-ai.js'
+import { initialsOf, hueOf } from './initials.js'
 
 /*
  * Icons: try the candidates in order. When none loads (no icon anywhere, or no network), the card shows one made
@@ -73,4 +74,17 @@ export function cardOf(s, { ui, onOpen, onRemove, link, onAdd }) {
       cardBody(s), meta ? h('span', { class: 'mcpi-card-meta', text: meta }) : null),
     cardTools(link, onAdd && (() => onAdd(s)), ui),
     s.custom ? h('button', { type: 'button', class: 'mcpi-remove', 'aria-label': ui.remove, title: ui.remove, text: '×', onclick: () => onRemove(s) }) : null)
+}
+
+export function shareBox(link, ui, onAdd) {
+  return [
+    h('summary', { text: ui.share }),
+    h('p', { class: 'mcpi-label', text: ui.shareLink }),
+    h('div', { class: 'mcpi-share-row' },
+      h('input', { type: 'text', readonly: true, value: link, class: 'mcpi-share-link', 'aria-label': ui.shareLink, onfocus: (e) => e.target.select() }),
+      copyButton(link, { label: ui.copy, copied: ui.copied })),
+    h('p', { class: 'mcpi-hint is-shown', text: ui.shareNote }),
+    h('p', { class: 'mcpi-label', text: ui.addAi }),
+    h('button', { type: 'button', class: 'mcpi-btn mcpi-add-ai', text: ui.addAiBtn, onclick: onAdd }),
+  ]
 }

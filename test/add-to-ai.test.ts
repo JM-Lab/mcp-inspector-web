@@ -213,8 +213,31 @@ test('worksOnPhone: only the chat apps, set up on their websites; every computer
   for (const c of list.filter((x) => !worksOnPhone(x))) assert.match(c.get, /^https:\/\//, c.id + ' has a page to get it')
 })
 
-test('the component stands alone: it imports nothing from the inspector', async () => {
+test('the component stands alone: it imports only its own files, never the inspector', async () => {
   const { readFileSync } = await import('node:fs')
-  const src = readFileSync(new URL('../src/add-to-ai.js', import.meta.url), 'utf8')
-  assert.doesNotMatch(src, /^\s*import\s/m)
+  const own = ['./add-to-ai-strings.js', './add-to-ai-clients.js', './add-to-ai-style.js', './initials.js']
+  const seen = new Set(['add-to-ai.js'])
+  const walk = (file) => {
+    const src = readFileSync(new URL('../src/' + file, import.meta.url), 'utf8')
+    for (const m of src.matchAll(/^\s*import\s[^'"]*['"]([^'"]+)['"]/gm)) {
+      assert.ok(own.includes(m[1]), file + ' imports ' + m[1])
+      const next = m[1].slice(2)
+      if (!seen.has(next)) { seen.add(next); walk(next) }
+    }
+  }
+  walk('add-to-ai.js')
+  assert.equal(seen.size, 5)
+})
+
+test('a token never rides a web page link; app links that hold it are marked', () => {
+  const server = { url: 'https://d.example/mcp', name: 'Docs', headers: { Authorization: 'Bearer s3cret-value' } }
+  const o = by2(server, { secret: true })
+  assert.doesNotMatch(decodeURIComponent(o.kiro.link), /s3cret/, 'Kiro opens a kiro.dev page, so <token> goes there instead')
+  assert.match(decodeURIComponent(o.kiro.link), /Bearer <token>/)
+  assert.match(o.kiro.code, /s3cret/, 'the file to edit by hand still has it')
+  assert.doesNotMatch(o['visual-studio'].link, /s3cret/)
+  for (const id of ['goose', 'vscode', 'cursor', 'vscode-insiders', 'lmstudio', 'trae']) assert.equal(o[id].secretInLink, true, id)
+  assert.ok(!o.kiro.secretInLink && !o['visual-studio'].secretInLink)
+  const shared = by2(server, { secret: false })
+  for (const c of Object.values(shared)) assert.ok(!c.secretInLink, c.id + ' carries no token when shared')
 })

@@ -14,17 +14,17 @@
  *   cards.js     server cards              registry.js  the MCP Registry panel
  *   share.js     links into the page        add-to-ai.js     add a server to an AI client (stands alone)
  *
- *   mount(root, options)   see README.md for every option
+ *   mount(root, options)   see README.md for every option; returns { destroy() }
  */
 import { Conn } from './conn.js'
 import { STRINGS } from './strings.js'
-import { h, linkify, labeled, copyButton } from './dom.js'
+import { h, linkify, labeled } from './dom.js'
 import { oauthStore } from './oauth.js'
 import { form } from './form.js'
 import { panes } from './panes.js'
-import { cardOf } from './cards.js'
+import { cardOf, shareBox } from './cards.js'
 import { registryPanel } from './registry.js'
-import { linkOf, readLink, registryEntry, mergeQuery } from './share.js'
+import { linkOf, readLink, registryEntry, mergeQuery, handoffStore } from './share.js'
 import { openAddToAi } from './add-to-ai.js'
 import { CAP, REGISTRY, STORE_PREFIX, hostOf, cleanUrl, pushFront, filled, loadStore, saveStore, explainError, registryCard, isActive } from './lib.js'
 
@@ -57,14 +57,8 @@ export function mount(root, options) {
   let current = null
   let tab = 'tools'
   let token = 0
-  /*
-   * A link with &to=<client>: once that server connects here, hand it on to the AI client (the add-to-ai popup, its one-click
-   * link tried at once). Kept in sessionStorage too, since an OAuth sign-in leaves the page and comes back without the query.
-   */
-  let handoff = null
-  const HANDOFF = P + ':handoff'
-  const keepHandoff = (s, to) => { handoff = { key: s.key, to }; try { sessionStorage.setItem(HANDOFF, JSON.stringify({ url: s.url, to })) } catch (e) { /* storage blocked */ } }
-  const dropHandoff = () => { handoff = null; try { sessionStorage.removeItem(HANDOFF) } catch (e) { /* storage blocked */ } }
+  /* A link with &to=<client>: once that server connects here, it goes on to that AI client (the add-to-ai popup, its one-click link tried at once). */
+  const handoff = handoffStore(sessionStorage, P + ':handoff')
 
   const el = {
     servers: h('div', { class: 'mcpi-servers' }),
@@ -216,15 +210,7 @@ export function mount(root, options) {
     if (el.share.dataset.link === link) return
     el.share.dataset.link = link
     const s = current
-    el.share.replaceChildren(
-      h('summary', { text: ui.share }),
-      h('p', { class: 'mcpi-label', text: ui.shareLink }),
-      h('div', { class: 'mcpi-share-row' },
-        h('input', { type: 'text', readonly: true, value: link, class: 'mcpi-share-link', 'aria-label': ui.shareLink, onfocus: (e) => e.target.select() }),
-        copyButton(link, { label: ui.copy, copied: ui.copied })),
-      h('p', { class: 'mcpi-hint is-shown', text: ui.shareNote }),
-      h('p', { class: 'mcpi-label', text: ui.addAi }),
-      h('button', { type: 'button', class: 'mcpi-btn mcpi-add-ai', text: ui.addAiBtn, onclick: () => addTo(s) }))
+    el.share.replaceChildren(...shareBox(link, ui, () => addTo(s)))
   }
 
   async function connect(server, quiet, opts) {
@@ -237,11 +223,8 @@ export function mount(root, options) {
       const old = data[server.key] || {}
       data[server.key] = Object.assign({}, old, live)
       /* Connected, so the server is known to answer: now it can go on to the AI client the link named. */
-      if (handoff && handoff.key === server.key && c.state === 'connected') {
-        const to = handoff.to
-        dropHandoff()
-        setTimeout(() => addTo(server, { client: to, verified: true, autoOpen: true }), 0)
-      }
+      const to = c.state === 'connected' && handoff.take(server.url)
+      if (to) setTimeout(() => addTo(server, { client: to, verified: true, autoOpen: true }), 0)
     } catch (e) {
       if (current === server) { renderHead(); if (!quiet && !itemsOf(tab).length) selectTab(tab) }
       throw e
@@ -436,7 +419,7 @@ export function mount(root, options) {
   const pending = returned ? auth.takePending() : null
   if (pending) {
     const s = add(pending.url, 'recent', { name: pending.name })
-    try { const kept = JSON.parse(sessionStorage.getItem(HANDOFF) || 'null'); if (kept && kept.url === s.url) handoff = { key: s.key, to: kept.to } } catch (e) { /* none */ }
+    handoff.restore()
     current = s
     conns[s.key] = conns[s.key] || newConn(s)
     s.wantsAuth = true
@@ -485,8 +468,18 @@ export function mount(root, options) {
     if (!s) return
     if (s.custom && link.auth === 'oauth') s.wantsAuth = true
     if (s.custom && link.auth === 'header' && !s.headers) { s.authHeader = link.header; save() }
-    if (link.to) keepHandoff(s, link.to)
+    if (link.to) handoff.keep(s.url, link.to)
     const done = select(s)
     revealOnArrival(Promise.all([regReady, done]))
+  }
+
+  /* Takes the inspector off the page: closes every connection and empties root (servers kept in this browser stay). */
+  return {
+    destroy() {
+      for (const key of Object.keys(conns)) forget({ key })
+      current = null
+      root.replaceChildren()
+      root.classList.remove('mcpi')
+    },
   }
 }

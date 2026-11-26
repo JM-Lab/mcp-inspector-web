@@ -77,3 +77,26 @@ export function readLink(params) {
 }
 
 export const registryEntry = (base, name) => base.replace(/\/+$/, '') + '/' + encodeURIComponent(name) + '/versions/latest'
+
+/*
+ * A link's &to=<client>, kept until the server it came with connects. It is kept in sessionStorage too,
+ * since an OAuth sign-in leaves the page and comes back without the query.
+ *   keep(url, to)   remember it      take(url)   the client for this server, if one waits (and forget it)
+ *   restore()       read it back after an OAuth return (only then: a later visit without &to= starts clean)      drop()
+ */
+export function handoffStore(storage, key) {
+  let held = null
+  const write = (v) => { try { if (v) storage.setItem(key, JSON.stringify(v)); else storage.removeItem(key) } catch (e) { /* storage blocked */ } }
+  return {
+    keep(url, to) { held = { url, to }; write(held) },
+    restore() { try { held = JSON.parse(storage.getItem(key) || 'null') } catch (e) { held = null } },
+    take(url) {
+      if (!held || held.url !== url) return null
+      const to = held.to
+      held = null
+      write(null)
+      return to
+    },
+    drop() { held = null; write(null) },
+  }
+}

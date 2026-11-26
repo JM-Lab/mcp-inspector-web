@@ -20,7 +20,9 @@ if (args.includes('-h') || args.includes('--help')) {
   process.exit(0)
 }
 const portArg = args.indexOf('--port')
-let port = Number(portArg >= 0 ? args[portArg + 1] : process.env.PORT) || 8787
+const asked = portArg >= 0 ? args[portArg + 1] : process.env.PORT
+/* --port 0 takes any free port (the tests use it). */
+let port = asked != null && asked !== '' && Number.isInteger(Number(asked)) && Number(asked) >= 0 ? Number(asked) : 8787
 const open = !args.includes('--no-open')
 
 const files = {
@@ -78,7 +80,7 @@ server.on('error', (e) => {
   else { console.error(e.message); process.exit(1) }
 })
 server.on('listening', () => {
-  const url = 'http://localhost:' + port
+  const url = 'http://localhost:' + server.address().port
   console.log('MCP Inspector Web: ' + url + '\nThe browser connects to each MCP server directly, so a server must allow this origin (CORS). Ctrl+C to stop.')
   if (!open) return
   const [cmd, ...rest] = process.platform === 'darwin' ? ['open'] : process.platform === 'win32' ? ['cmd', '/c', 'start', ''] : ['xdg-open']

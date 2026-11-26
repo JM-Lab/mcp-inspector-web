@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { linkOf, readLink, mergeQuery, registryEntry } from '../src/share.js'
+import { linkOf, readLink, mergeQuery, registryEntry, handoffStore } from '../src/share.js'
 
 const custom = (x) => ({ custom: true, kind: 'recent', ...x })
 
@@ -65,4 +65,27 @@ test('mergeQuery: replaces only the keys this page owns', () => {
 
 test('registryEntry: one server by name', () => {
   assert.equal(registryEntry('https://registry.modelcontextprotocol.io/v0/servers', 'io.github.x/y'), 'https://registry.modelcontextprotocol.io/v0/servers/io.github.x%2Fy/versions/latest')
+})
+
+test('handoffStore: &to= waits for its own server, once, and survives an OAuth return only when restored', () => {
+  const mem = new Map()
+  const storage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v), removeItem: (k) => mem.delete(k) }
+  const a = handoffStore(storage, 'k')
+  a.keep('https://a.example/mcp', 'lmstudio')
+  assert.equal(a.take('https://b.example/mcp'), null, 'another server does not take it')
+  assert.equal(a.take('https://a.example/mcp'), 'lmstudio')
+  assert.equal(a.take('https://a.example/mcp'), null, 'only once')
+  assert.equal(mem.size, 0)
+
+  handoffStore(storage, 'k').keep('https://a.example/mcp', 'cursor')
+  const later = handoffStore(storage, 'k')
+  assert.equal(later.take('https://a.example/mcp'), null, 'a new page load starts clean')
+  later.restore()
+  assert.equal(later.take('https://a.example/mcp'), 'cursor', 'back from OAuth, it is read again')
+
+  const broken = { getItem: () => { throw new Error('blocked') }, setItem: () => { throw new Error('blocked') }, removeItem: () => {} }
+  const b = handoffStore(broken, 'k')
+  b.keep('https://a.example/mcp', 'vscode')
+  b.restore()
+  assert.equal(b.take('https://a.example/mcp'), null, 'blocked storage is not an error')
 })
