@@ -44,6 +44,16 @@ test('registryCard: carries name, description, required header and icon', () => 
   assert.equal(lib.registryCard(local, { http: true }).url, 'http://localhost:3000/mcp')
 })
 
+test('isActive: deprecated and deleted registry entries are left out of every list', () => {
+  const meta = (status) => ({ _meta: { 'io.modelcontextprotocol.registry/official': { status } } })
+  assert.equal(lib.isActive(meta('active')), true)
+  assert.equal(lib.isActive(meta('deprecated')), false)
+  assert.equal(lib.isActive(meta('deleted')), false)
+  assert.equal(lib.isActive({ server: {} }), true, 'no status is taken as active')
+  const mk = (n, status) => ({ server: { name: n, remotes: [{ type: 'streamable-http', url: 'https://' + n + '.example/mcp' }] }, ...meta(status) })
+  assert.deepEqual(lib.registryCards([mk('a', 'active'), mk('b', 'deprecated'), mk('c', 'deleted'), mk('d', 'active')]).map((c) => c.id), ['a', 'd'])
+})
+
 test('registryCards: drops entries with no remote and repeated addresses, up to max', () => {
   const mk = (n, url) => ({ server: { name: n, remotes: url ? [{ type: 'streamable-http', url }] : [] } })
   const cards = lib.registryCards([mk('a', 'https://a.example/mcp'), mk('b'), mk('a2', 'https://a.example/mcp'), mk('c', 'https://c.example/mcp'), mk('d', 'https://d.example/mcp')], 2)

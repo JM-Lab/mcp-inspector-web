@@ -26,7 +26,7 @@ import { cardOf } from './cards.js'
 import { registryPanel } from './registry.js'
 import { linkOf, readLink, registryEntry, mergeQuery } from './share.js'
 import { openAddToAi } from './add-to-ai.js'
-import { CAP, REGISTRY, STORE_PREFIX, hostOf, cleanUrl, pushFront, filled, loadStore, saveStore, explainError, registryCard } from './lib.js'
+import { CAP, REGISTRY, STORE_PREFIX, hostOf, cleanUrl, pushFront, filled, loadStore, saveStore, explainError, registryCard, isActive } from './lib.js'
 
 const TABS = [['tools', 'Tools'], ['prompts', 'Prompts'], ['resources', 'Resources'], ['history', 'History']]
 const LEVELS = ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency']
@@ -450,11 +450,17 @@ export function mount(root, options) {
     let s = null
     if (link.registry && cfg.registry) {
       let card = null
+      let gone = false
       try {
         const res = await fetch(registryEntry(cfg.registry, link.registry))
-        if (res.ok) { const json = await res.json(); card = registryCard(json.server || json, { http: location.protocol === 'http:' }) }
+        if (res.ok) {
+          const json = await res.json()
+          /* A deprecated or deleted entry is not opened: say so rather than connect to what its author retired. */
+          gone = !isActive(json)
+          if (!gone) card = registryCard(json.server || json, { http: location.protocol === 'http:' })
+        }
       } catch (e) { /* not found below */ }
-      if (!card) { root.prepend(h('p', { class: 'mcpi-auth-note mcpi-notice', role: 'alert', text: ui.regMissing })); setQuery(''); return }
+      if (!card) { root.prepend(h('p', { class: 'mcpi-auth-note mcpi-notice', role: 'alert', text: gone ? ui.regInactive : ui.regMissing })); setQuery(''); return }
       s = add(card.url, 'recent', cardMeta(card))
     } else if (link.url) {
       s = add(link.url, 'recent', {})

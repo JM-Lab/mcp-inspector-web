@@ -153,6 +153,7 @@ test('fromRegistry: the address, title and needed header of a server, by its nam
       { type: 'streamable-http', url: 'https://docs.example/mcp', headers: [{ name: 'X-Opt' }, { name: 'X-Key', isRequired: true }] },
     ] } },
     'io.x/local': { server: { name: 'io.x/local', remotes: [{ type: 'streamable-http', url: 'http://localhost:3000/mcp' }] } },
+    'io.x/old': { server: { name: 'io.x/old', remotes: [{ type: 'streamable-http', url: 'https://old.example/mcp' }] }, _meta: { 'io.modelcontextprotocol.registry/official': { status: 'deprecated' } } },
   }
   const real = globalThis.fetch
   globalThis.fetch = (async (url: string) => {
@@ -169,6 +170,7 @@ test('fromRegistry: the address, title and needed header of a server, by its nam
     assert.equal(asked.length, 1, 'each name is asked once')
     await assert.rejects(fromRegistry('io.x/local', api), /No remote address/, 'an http remote is not one these clients can be given')
     await assert.rejects(fromRegistry('io.x/none', api), /Not in the MCP Registry/)
+    await assert.rejects(fromRegistry('io.x/old', api), (e: Error & { inactive?: boolean }) => e.inactive === true && /deprecated/.test(e.message), 'a deprecated server is not offered')
     entries['io.x/none'] = entries['io.x/docs']
     await new Promise((r) => setTimeout(r, 0))
     assert.equal((await fromRegistry('io.x/none', api)).url, 'https://docs.example/mcp', 'a failed lookup is asked again later')

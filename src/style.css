@@ -167,7 +167,7 @@
 .mcpi-card-name b{font-size:.95rem;overflow-wrap:anywhere}
 .mcpi-ico{flex:none;width:28px;height:28px;border-radius:7px;overflow:hidden;background:var(--mcpi-tint);display:grid;place-items:center}
 .mcpi-ico img{width:100%;height:100%;object-fit:contain;display:block}
-.mcpi-ico.is-none{background:var(--mcpi-ink);color:var(--mcpi-inv);font-weight:800;font-size:.85rem;line-height:1}
+.mcpi-ico.is-none{color:#fff;font-weight:800;font-size:.72rem;letter-spacing:-.02em;line-height:1}
 .mcpi-add{display:grid;gap:.4rem;grid-template-columns:minmax(0,1fr) auto;max-width:36rem;align-items:start}
 .mcpi-add details{grid-column:1/-1}
 .mcpi-add .mcpi-run{min-height:42px;padding:0 1.1rem}

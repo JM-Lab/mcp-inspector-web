@@ -50,13 +50,15 @@ before(async () => {
 <mcp-add-to-ai id="byname" registry="io.test/docs" registry-api="/registry/v0/servers"></mcp-add-to-ai>
 <mcp-add-to-ai id="renamed" registry="io.test/docs" name="My docs" registry-api="/registry/v0/servers"></mcp-add-to-ai>
 <mcp-add-to-ai id="missing" registry="io.test/nothing" registry-api="/registry/v0/servers"></mcp-add-to-ai>
+<mcp-add-to-ai id="retired" registry="io.test/retired" registry-api="/registry/v0/servers"></mcp-add-to-ai>
 <div id="host"></div><script src="/mcp-add-to-ai.js"></script>`
   /* A stand-in for the MCP Registry: one server by name, and an empty list for the panel. */
   const entry = { server: { name: 'io.test/local', title: 'Registry test server', description: 'from the registry', remotes: [{ type: 'streamable-http', url: mcp.base + '/from-registry' }] } }
   const locked = { server: { name: 'io.test/locked', title: 'Locked', remotes: [{ type: 'streamable-http', url: mcp.base + '/token-registry', headers: [{ name: 'x-test-key', value: '\${KEY}', isRequired: true, isSecret: true }] }] } }
   /* For the AI component: an entry with an https remote (what it accepts) and the header it needs. */
   const docs = { server: { name: 'io.test/docs', title: 'Docs from the registry', remotes: [{ type: 'streamable-http', url: 'https://docs.example/mcp', headers: [{ name: 'X-Docs-Key', isSecret: true }] }] } }
-  const registry = { 'io.test/local': entry, 'io.test/locked': locked, 'io.test/docs': docs }
+  const retired = { server: { name: 'io.test/retired', title: 'Retired', remotes: [{ type: 'streamable-http', url: 'https://retired.example/mcp' }] }, _meta: { 'io.modelcontextprotocol.registry/official': { status: 'deprecated' } } }
+  const registry = { 'io.test/local': entry, 'io.test/locked': locked, 'io.test/docs': docs, 'io.test/retired': retired }
   const options = { lang: 'en', registry: '/registry/v0/servers', servers: [{ key: 'local', name: 'Local test server', url: mcp.base + '/mcp' }] }
   const html = `<!doctype html><html lang="en"><meta charset="utf-8"><title>test</title><link rel="stylesheet" href="/mcp-inspector.css">
 <div id="mcpi"></div><script>window.MCP_INSPECTOR = ${JSON.stringify(options)}</script><script src="/mcp-inspector.js"></script>`
@@ -214,6 +216,13 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     await b.until(`document.querySelector('.mcpi-notice')`)
   })
 
+  await t.test('a registry entry marked deprecated is not opened, and says why', async () => {
+    await open('?r=io.test/retired')
+    await b.until(`document.querySelector('.mcpi-notice')`)
+    assert.match(await b.run(`document.querySelector('.mcpi-notice').textContent`), /deprecated/)
+    assert.equal(await b.run(`document.querySelector('.mcpi-main').hidden`), true)
+  })
+
   await t.test('&oauth shows the sign-in button and waits for a press', async () => {
     const calls = mcp.oauth.tokenCalls
     await b.run('sessionStorage.clear()')
@@ -314,6 +323,8 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     await b.until(`document.querySelector('#missing').dataset.state === 'missing'`)
     assert.equal(await b.run(`document.querySelector('#missing button').disabled`), true)
     assert.equal(await b.run(`document.querySelector('#missing button').textContent`), 'Not in the MCP Registry')
+    await b.until(`document.querySelector('#retired').dataset.state === 'missing'`)
+    assert.equal(await b.run(`document.querySelector('#retired button').textContent`), 'Deprecated in the MCP Registry')
     /* And in JS, a registry name alone opens the popup once it is read. */
     await b.run(`MCPAddToAI.openAddToAi({ id: 'io.test/docs' }, { registryApi: '/registry/v0/servers' })`)
     await b.until(`document.querySelector('dialog.mcpi-addto')`)
@@ -397,6 +408,29 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.equal(await b.run(`document.querySelector('dialog.mcpi-addto h2').textContent`), 'Add X to an AI client')
     await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
     await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+  })
+
+  await t.test('with no network for icons, cards and the popup show initials on a color of their own', async () => {
+    /* The local servers have no https icon at all: their cards already make one from the name. */
+    await open()
+    const card = `[...document.querySelectorAll('.mcpi-card-wrap')].find((w) => w.querySelector('.mcpi-server')?.dataset.key === 'local').querySelector('.mcpi-ico')`
+    await b.until(card + `.classList.contains('is-none')`)
+    assert.equal(await b.run(card + '.textContent'), 'LT', 'Local test server')
+    assert.match(await b.run(card + '.style.background'), /^rgb\(/, 'a color made from the name')
+
+    /* Every CDN icon blocked, as when offline: all 35 clients still get an icon, made from their names. */
+    await b.send('Network.enable')
+    await b.send('Network.setBlockedURLs', { urls: ['*cdn.jsdelivr.net*'] })
+    try {
+      await b.go(origin + '/add-to-ai.html')
+      await b.run(`MCPAddToAI.openAddToAi({ url: 'https://x.example/mcp' }, { mobile: false })`)
+      await b.until(`[...document.querySelectorAll('.mcpi-addto-tile .mcpi-addto-ico')].every((x) => x.classList.contains('is-letter'))`, 10000)
+      assert.equal(await b.run(`document.querySelector('[data-client=vscode] .mcpi-addto-ico').textContent`), 'VC')
+      assert.equal(await b.run(`document.querySelector('[data-client=cursor] .mcpi-addto-ico').textContent`), 'Cu', 'a mono icon falls back too')
+      await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    } finally {
+      await b.send('Network.setBlockedURLs', { urls: [] })
+    }
   })
 
   await t.test('no uncaught errors in the page', () => {

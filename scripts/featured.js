@@ -12,7 +12,7 @@
 import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
-import { registryCard, REGISTRY } from '../src/lib.js'
+import { registryCard, REGISTRY, isActive } from '../src/lib.js'
 import { CLIENT_INFO } from '../src/conn.js'
 
 /** [registry name, display name, remote to use when there are several, favicon of the company site when the registry has no icon] */
@@ -38,7 +38,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 async function lookup(name) {
   const json = await (await fetch(`${REGISTRY}?version=latest&limit=20&search=${encodeURIComponent(name)}`)).json()
-  const hit = (json.servers || []).map((x) => x.server || x).find((s) => s.name === name)
+  /* Only an active entry: a deprecated or deleted one is left out of the list. */
+  const hit = (json.servers || []).filter(isActive).map((x) => x.server || x).find((s) => s.name === name)
   return hit || null
 }
 

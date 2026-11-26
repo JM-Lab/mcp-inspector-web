@@ -7,14 +7,24 @@
  */
 import { h, copyButton } from './dom.js'
 import { hostOf, iconCandidates, countsText } from './lib.js'
+import { initialsOf, hueOf } from './add-to-ai.js'
 
-/* Icons: try the candidates in order, and fall back to the first letter of the name. */
+/*
+ * Icons: try the candidates in order. When none loads (no icon anywhere, or no network), the card shows one made
+ * from the name: its initials on a color of its own, the same way the add-to-ai popup does for its clients.
+ */
 function iconOf(s) {
   const box = h('span', { class: 'mcpi-ico', 'aria-hidden': 'true' })
   const list = s.custom === false && s.icon ? [s.icon] : iconCandidates(s)
   let i = 0
   const next = () => {
-    if (i >= list.length) { box.classList.add('is-none'); box.replaceChildren(String(s.name || '?').trim().charAt(0).toUpperCase()); return }
+    if (i >= list.length) {
+      const name = String(s.name || hostOf(s.url) || '?').trim()
+      box.classList.add('is-none')
+      box.style.background = `hsl(${hueOf(name)} 62% 46%)`
+      box.replaceChildren(initialsOf(name))
+      return
+    }
     const img = h('img', { src: list[i++], alt: '', width: '28', height: '28', loading: 'lazy', decoding: 'async', referrerpolicy: 'no-referrer' })
     img.addEventListener('error', next)
     img.addEventListener('load', () => { if (img.naturalWidth < 8) next() })

@@ -33,6 +33,15 @@ export function pickRemote(sv, opts) {
   return ((sv && sv.remotes) || []).find((r) => r && r.type === 'streamable-http' && scheme.test(r.url || '') && !/[{}]/.test(r.url)) || null
 }
 
+/*
+ * Whether a registry entry is still active. /versions/latest and version=latest can return a deprecated (or deleted) server,
+ * so the official API docs say to check status for a list of active servers. An entry with no status is taken as active.
+ */
+export function isActive(entry) {
+  const meta = (entry && entry._meta && entry._meta['io.modelcontextprotocol.registry/official']) || {}
+  return !meta.status || meta.status === 'active'
+}
+
 /** A registry entry as one card. null when it has no usable remote. */
 export function registryCard(sv, opts) {
   const remote = pickRemote(sv, opts)
@@ -49,6 +58,7 @@ export function registryCards(list, max = 30) {
   const out = []
   const seen = new Set()
   for (const sv of list || []) {
+    if (!isActive(sv)) continue
     const c = registryCard(sv && sv.server ? sv.server : sv)
     if (!c || seen.has(c.url)) continue
     seen.add(c.url)

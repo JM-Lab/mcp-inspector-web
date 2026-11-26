@@ -40,7 +40,7 @@
 
 const STRINGS = {
   en: {
-    button: 'Add to an AI client', loading: 'Looking up…', notFound: 'Not in the MCP Registry', title: 'Add {v} to an AI client', close: 'Close', pick: 'Choose your AI client',
+    button: 'Add to an AI client', loading: 'Looking up…', notFound: 'Not in the MCP Registry', inactive: 'Deprecated in the MCP Registry', title: 'Add {v} to an AI client', close: 'Close', pick: 'Choose your AI client',
     link: 'One click', command: 'Command', file: 'Config file', settings: 'Settings',
     addIn: 'Add to {v}', linkHint: '{v} opens and asks you to confirm.', manual: 'Or add it by hand',
     run: 'Run this in a terminal:', openFile: 'Add this to', copy: 'Copy', copied: 'Copied',
@@ -75,7 +75,7 @@ const STRINGS = {
     jetbrains: ['Open Settings → Tools → AI Assistant → Model Context Protocol (MCP).', 'Press Add and choose an HTTP connection.', 'Paste this and save:'],
   },
   ko: {
-    button: 'AI 클라이언트에 추가', loading: '찾는 중…', notFound: 'MCP 레지스트리에 없음', title: '{v} 를 AI 클라이언트에 추가', close: '닫기', pick: 'AI 클라이언트를 고르세요',
+    button: 'AI 클라이언트에 추가', loading: '찾는 중…', notFound: 'MCP 레지스트리에 없음', inactive: 'MCP 레지스트리에서 지원 중단', title: '{v} 를 AI 클라이언트에 추가', close: '닫기', pick: 'AI 클라이언트를 고르세요',
     link: '클릭 한 번', command: '명령어', file: '설정 파일', settings: '앱 설정',
     addIn: '{v} 에 추가', linkHint: '{v} 가 열리고 추가할지 묻습니다.', manual: '직접 넣으려면',
     run: '터미널에서 실행하세요:', openFile: '이 파일에 넣으세요:', copy: '복사', copied: '복사됨',
@@ -128,6 +128,9 @@ export function fromRegistry(name, opts = {}) {
     looked.set(key, fetch(api + '/' + encodeURIComponent(name) + '/versions/latest').then(async (res) => {
       if (!res.ok) throw new Error('Not in the MCP Registry: ' + name)
       const body = await res.json()
+      /* The latest version can be a deprecated or deleted one; only an active server is offered to add. */
+      const status = ((body._meta || {})['io.modelcontextprotocol.registry/official'] || {}).status
+      if (status && status !== 'active') throw Object.assign(new Error('Not active in the MCP Registry: ' + name + ' (' + status + ')'), { inactive: true })
       const sv = body.server || body
       const remote = (sv.remotes || []).find((r) => r && r.type === 'streamable-http' && /^https:\/\//.test(r.url || '') && !/[{}]/.test(r.url))
       if (!remote) throw new Error('No remote address for ' + name)
@@ -630,7 +633,7 @@ export function addToAiButton(server, opts = {}) {
     /* Given by registry name alone: look it up on the first press. */
     b.disabled = true
     b.textContent = t.loading
-    try { server = await withAddress(server, opts); b.disabled = false; b.textContent = opts.label || t.button; openAddToAi(server, opts) } catch (err) { b.textContent = t.notFound }
+    try { server = await withAddress(server, opts); b.disabled = false; b.textContent = opts.label || t.button; openAddToAi(server, opts) } catch (err) { b.textContent = err.inactive ? t.inactive : t.notFound }
   })
   return b
 }
@@ -667,7 +670,7 @@ export function defineAddToAi(tag = 'mcp-add-to-ai') {
       } catch (e) {
         if (mine !== this.seq) return
         this.dataset.state = 'missing'
-        this.replaceChildren(el('button', { type: 'button', class: 'mcpi-addto-trigger', disabled: true, text: t.notFound, title: String(e.message || e) }))
+        this.replaceChildren(el('button', { type: 'button', class: 'mcpi-addto-trigger', disabled: true, text: e.inactive ? t.inactive : t.notFound, title: String(e.message || e) }))
       }
     }
   })

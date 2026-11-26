@@ -18,6 +18,7 @@ export const STRINGS = {
     share: 'Share', shareLink: 'Link that opens this server here', copy: 'Copy', copied: 'Copied',
     shareNote: 'A header token never goes into the link, only the header name.',
     regMissing: 'This server was not found in the MCP Registry, or it has no remote address a browser can use.',
+    regInactive: 'This server is marked deprecated (or deleted) in the MCP Registry, so it is not opened.',
     addAi: 'Add to an AI client', addAiBtn: 'Add to an AI client…', addAiShort: '+ AI', copyLink: 'Copy the link that opens this server here',
   },
   ko: {
@@ -35,6 +36,7 @@ export const STRINGS = {
     share: '공유', shareLink: '여기서 이 서버를 바로 여는 링크', copy: '복사', copied: '복사됨',
     shareNote: '링크에는 헤더 이름만 들어가고 토큰 값은 들어가지 않습니다.',
     regMissing: 'MCP 레지스트리에서 이 서버를 찾지 못했거나, 브라우저로 쓸 수 있는 원격 주소가 없습니다.',
+    regInactive: 'MCP 레지스트리에서 지원 중단(또는 삭제)으로 표시된 서버라 열지 않습니다.',
     addAi: 'AI 클라이언트에 추가', addAiBtn: 'AI 클라이언트에 추가…', addAiShort: '+ AI', copyLink: '여기서 이 서버를 여는 링크 복사',
   },
 }
