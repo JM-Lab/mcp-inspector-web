@@ -21,7 +21,7 @@
   <p class="lede">Test a remote MCP server in your browser, with nothing to install. <a href="https://github.com/JM-Lab/mcp-inspector-web">Source on GitHub</a></p>
   <div id="mcpi"><noscript>This page needs JavaScript.</noscript></div>
 </main>
-<script>window.MCP_INSPECTOR = { lang: navigator.language.startsWith('ko') ? 'ko' : 'en', featured: 'featured.json' }</script>
+<script>window.MCP_INSPECTOR = { lang: new URLSearchParams(location.search).get('lang') || (navigator.language.startsWith('ko') ? 'ko' : 'en'), featured: 'featured.json' }</script>
 <script src="mcp-inspector.js" defer></script>
 </body>
 </html>

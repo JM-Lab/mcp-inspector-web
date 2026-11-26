@@ -35,6 +35,7 @@ export function tap(transport, c) {
   Object.defineProperty(transport, 'onmessage', { configurable: true, get: () => (handler ? wrapped : undefined), set: (fn) => { handler = fn } })
 }
 
+/** Sent in initialize. `npm version` keeps the version in step with package.json (scripts/version.js). */
 export const CLIENT_INFO = { name: 'mcp-inspector-web', version: '0.1.0' }
 
 const NO_HOOKS = { clientInfo: CLIENT_INFO, onLog() {}, onListsChanged() {}, onElicit: async () => ({ action: 'decline' }), authProvider: null, hasTokens: () => false, explain: (e) => String((e && e.message) || e) }
@@ -118,7 +119,8 @@ export class Conn {
     else if (method === 'resources/unsubscribe') { result = await c.unsubscribeResource(params, opts); this.subs.delete(params.uri) }
     else if (method === 'logging/setLevel') result = await c.setLoggingLevel(params.level, opts)
     else if (method === 'completion/complete') result = await c.complete(params, opts)
-    else result = await c.ping(opts)
+    else if (method === 'ping') result = await c.ping(opts)
+    else throw new Error('Unknown method: ' + method)
     this.lastMs = Math.round(now() - t0)
     return result
   }

@@ -1,0 +1,77 @@
+/*
+ * The MCP Registry panel: search, and the "Well known", "No auth needed" and "Recently updated" filters.
+ *   registryPanel({ cfg, ui, onPick }) → { el, search() }
+ *     onPick(card)   a result was pressed; the page adds it to recently viewed and opens it
+ *
+ * The registry has no popularity order (its query parameters are only search, updated_since, cursor, limit and version).
+ * So 'Well known' and 'No auth needed' come from a prepared list (options.featured, see scripts/featured.js),
+ * while 'Recently updated' and search ask the registry live, when pressed.
+ */
+import { h } from './dom.js'
+import { cardBody } from './cards.js'
+import { REG_FIRST, registryCards, featuredFor } from './lib.js'
+
+export function registryPanel({ cfg, ui, onPick }) {
+  const input = h('input', { type: 'search', placeholder: ui.regSearch, spellcheck: 'false', autocomplete: 'off', 'aria-label': 'MCP Registry' })
+  const list = h('div', { class: 'mcpi-cards mcpi-reg-list' })
+  const more = h('button', { type: 'button', class: 'mcpi-btn mcpi-reg-more', text: ui.regMore, hidden: true })
+  more.addEventListener('click', () => { for (const r of list.querySelectorAll('[hidden]')) r.hidden = false; more.hidden = true })
+  const note = h('span')
+  let timer = 0
+  let seq = 0
+  let filter = cfg.featured ? 'known' : 'recent'
+
+  let featured = null
+  async function featuredList() {
+    if (!featured) featured = typeof cfg.featured === 'string' ? await (await fetch(cfg.featured)).json() : cfg.featured
+    return featured
+  }
+  let recent = null
+  async function recentServers() {
+    if (recent) return recent
+    const since = new Date(Date.now() - 2 * 86400000).toISOString()
+    const all = []
+    let cursor = ''
+    for (let i = 0; i < 3; i++) {
+      const json = await (await fetch(cfg.registry + '?version=latest&limit=100&updated_since=' + encodeURIComponent(since) + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''))).json()
+      all.push(...(json.servers || []))
+      cursor = json.metadata && json.metadata.nextCursor
+      if (!cursor) break
+    }
+    const when = (x) => ((x._meta || {})['io.modelcontextprotocol.registry/official'] || {}).updatedAt || ''
+    recent = registryCards(all.sort((a, b) => (when(a) < when(b) ? 1 : -1)))
+    return recent
+  }
+
+  const chips = h('div', { class: 'mcpi-filters', role: 'group', 'aria-label': 'MCP Registry' }, [['known', ui.fKnown], ['open', ui.fOpen], ['recent', ui.fRecent]].filter(([k]) => cfg.featured || k === 'recent').map(([k, label]) =>
+    h('button', { type: 'button', class: 'mcpi-chip', 'data-filter': k, 'aria-pressed': 'false', text: label, onclick: () => { filter = k; input.value = ''; search() } })))
+
+  async function search() {
+    const q = input.value.trim()
+    const searching = q.length >= 2
+    const mine = ++seq
+    for (const b of chips.children) { const on = !searching && b.dataset.filter === filter; b.classList.toggle('is-on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false') }
+    note.textContent = searching ? '' : filter === 'recent' ? ui.regRecent : ui.regKnown
+    more.hidden = true
+    list.replaceChildren(h('p', { class: 'mcpi-hint is-shown', text: ui.asking }))
+    let cards = []
+    try {
+      if (searching) cards = registryCards((await (await fetch(cfg.registry + '?version=latest&limit=40&search=' + encodeURIComponent(q))).json()).servers)
+      else if (filter === 'recent') cards = await recentServers()
+      else cards = featuredFor(filter, await featuredList())
+    } catch (e) {
+      if (mine === seq) list.replaceChildren(h('p', { class: 'mcpi-hint is-shown', text: ui.fail }))
+      return
+    }
+    if (mine !== seq) return
+    const rows = cards.map((c, i) => h('button', { type: 'button', class: 'mcpi-card mcpi-reg', hidden: i >= REG_FIRST, onclick: () => onPick(c) },
+      cardBody(c, c.id), c.open ? h('span', { class: 'mcpi-card-tag', text: ui.openTag }) : null))
+    list.replaceChildren(...(rows.length ? rows : [h('p', { class: 'mcpi-hint is-shown', text: ui.regEmpty })]))
+    more.hidden = rows.length <= REG_FIRST
+  }
+  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(search, 300) })
+
+  const el = h('section', { class: 'mcpi-registry' },
+    h('p', { class: 'mcpi-label' }, 'MCP Registry ', note), h('div', { class: 'mcpi-reg-bar' }, input, chips), list, more)
+  return { el, search }
+}

@@ -1,10 +1,12 @@
 /*
- * Logic with no UI (src/lib.js), and the storage rules of the page (src/app.js).
+ * Logic with no UI (src/lib.js), and the storage rules of OAuth sign-in (src/oauth.js).
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import * as lib from '../src/lib.js'
+import { oauthStore, PENDING_MAX_MS } from '../src/oauth.js'
+import { CLIENT_INFO } from '../src/conn.js'
 
 
 test('cleanUrl: accepts and normalizes http(s) only', () => {
@@ -182,15 +184,55 @@ test('clientMetadataFor: a URL, or a map of page origin to URL', () => {
 })
 
 test('OAuth round trip values live in localStorage, so another tab can finish it', () => {
-  const src = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8')
-  assert.match(src, /saveCodeVerifier: \(v\) => jset\(localStorage,/, 'PKCE verifier')
-  assert.match(src, /jset\(localStorage, PENDING,/, 'which server')
-  assert.match(src, /saveTokens: \(v\) => jset\(sessionStorage,/, 'tokens go when the tab closes')
-  assert.ok(!/jget\(sessionStorage, PENDING\)/.test(src))
+  const store = () => { const m = new Map(); return { m, getItem: (k: string) => (m.has(k) ? m.get(k) : null), setItem: (k: string, v: string) => m.set(k, v), removeItem: (k: string) => m.delete(k) } }
+  const local = store()
+  const session = store()
+  let went = ''
+  const page = { origin: 'https://a.example', pathname: '/inspector', assign: (u: string) => { went = u } }
+  const auth = oauthStore({ prefix: 'p', oauth: {}, local, session, page })
+  const server = { key: 'k', name: 'S', url: 'https://s.example/mcp' }
+  const pv = auth.provider(server)
+  assert.equal(pv.redirectUrl, 'https://a.example/inspector')
+  pv.saveCodeVerifier('v1')
+  pv.saveTokens({ access_token: 't' })
+  pv.redirectToAuthorization('https://s.example/authorize')
+  assert.equal(went, 'https://s.example/authorize')
+  assert.ok(local.m.has('p:verifier:' + server.url), 'PKCE verifier')
+  assert.ok(local.m.has('p:oauth'), 'which server')
+  assert.ok(session.m.has('p:tokens:' + server.url) && !local.m.has('p:tokens:' + server.url), 'tokens go when the tab closes')
+  assert.ok(auth.hasTokens(server))
+  assert.equal(auth.takePending().url, server.url)
+  assert.equal(auth.takePending(), null, 'used once')
+  pv.redirectToAuthorization('https://s.example/authorize')
+  assert.equal(auth.takePending(Date.now() + PENDING_MAX_MS + 1), null, 'too old')
+  auth.clearVerifier(server)
+  assert.equal(pv.codeVerifier(), '')
+})
+
+test('partsOf: tool content, resource contents, prompt messages', () => {
+  assert.deepEqual(lib.partsOf({ content: [{ type: 'text', text: 'a' }] }), [{ type: 'text', text: 'a' }])
+  assert.deepEqual(lib.partsOf({ contents: [{ uri: 'x', text: 'b' }] }), [{ uri: 'x', text: 'b' }])
+  assert.deepEqual(lib.partsOf({ messages: [{ role: 'user', content: { type: 'text', text: 'c' } }] }), [{ role: 'user', type: 'text', text: 'c' }])
+  assert.equal(lib.partsOf({}), null)
+})
+
+test('explainError: the sentence a person sees', () => {
+  const ui = { failOauth: 'oauth', failDcr: 'dcr', failCors: 'cors', failAuth: 'auth' }
+  assert.equal(lib.explainError(Object.assign(new Error('x'), { name: 'AbortError' }), false, ui), 'Cancelled')
+  assert.equal(lib.explainError(new TypeError('Failed to fetch'), true, ui), 'oauth')
+  assert.equal(lib.explainError(new TypeError('Failed to fetch'), false, ui), 'cors')
+  assert.equal(lib.explainError(new Error('does not support dynamic client registration'), true, ui), 'dcr')
+  assert.equal(lib.explainError({ status: 401, message: 'no' }, false, ui), 'auth')
+  assert.equal(lib.explainError(new Error('other'), false, ui), 'other')
+})
+
+test('the version sent in initialize is the package version', () => {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  assert.equal(CLIENT_INFO.version, pkg.version)
 })
 
 test('the page carries nothing site specific', () => {
-  for (const f of ['app.js', 'conn.js', 'lib.js', 'strings.js', 'style.css']) {
+  for (const f of readdirSync(new URL('../src/', import.meta.url))) {
     const src = readFileSync(new URL('../src/' + f, import.meta.url), 'utf8')
     assert.ok(!/aljal/i.test(src), f + ' mentions a site')
   }

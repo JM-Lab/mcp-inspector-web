@@ -1,5 +1,5 @@
 /*
- * Logic with no UI. The browser bundle (app.js) and the tests use the same code.
+ * Logic with no UI. The page and the tests use the same code.
  * Nothing here touches the DOM or localStorage directly: storage is passed in.
  */
 
@@ -153,4 +153,22 @@ export function clientMetadataFor(setting, origin) {
   if (!setting) return undefined
   if (typeof setting === 'string') return setting
   return setting[origin] || undefined
+}
+
+/** The content parts of a result: tool content, resource contents, or prompt messages (each with its role). null when there are none to show as parts. */
+export function partsOf(result) {
+  if (result && Array.isArray(result.content)) return result.content
+  if (result && Array.isArray(result.contents)) return result.contents
+  if (result && Array.isArray(result.messages)) return result.messages.map((m) => Object.assign({ role: m.role }, m.content))
+  return null
+}
+
+/** The sentence shown to a person for an error. ui holds the strings (strings.js); oauth says whether an OAuth sign-in was under way. */
+export function explainError(e, oauth, ui) {
+  if (e && e.name === 'AbortError') return 'Cancelled'
+  if (oauth && isNetError(e)) return ui.failOauth
+  if (/dynamic client registration/i.test(String((e && e.message) || e))) return ui.failDcr
+  if (isNetError(e)) return ui.failCors
+  if (isAuthError(e)) return ui.failAuth
+  return String((e && e.message) || e)
 }
