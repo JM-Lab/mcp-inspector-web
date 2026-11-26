@@ -2,3 +2,4 @@ dist/
 demo/mcp-inspector.js
 demo/mcp-inspector.css
 node_modules/
+demo/mcp-add-to-ai.js

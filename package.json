@@ -27,6 +27,7 @@
   "exports": {
     ".": "./src/index.js",
     "./auto": "./src/auto.js",
+    "./add-to-ai": "./src/add-to-ai.js",
     "./lib": "./src/lib.js",
     "./conn": "./src/conn.js",
     "./style.css": "./src/style.css",

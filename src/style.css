@@ -112,8 +112,6 @@
 .mcpi .mcpi-share-row>input{font-family:var(--mcpi-mono);font-size:.76rem}
 .mcpi-share-row>pre{font-size:.72rem;line-height:1.5;padding:.55rem .7rem;border:1px solid var(--mcpi-rule);border-radius:6px;background:var(--mcpi-card);max-height:14rem;overflow:auto;white-space:pre}
 .mcpi-copy{flex:none}
-.mcpi-share .mcpi-label code{font-weight:600;text-transform:none;letter-spacing:0}
-.mcpi-install-open{font-weight:700;text-transform:none;letter-spacing:0;color:var(--mcpi-accent)}
 .mcpi-asks:empty{display:none}
 .mcpi-asks{margin:.6rem 1rem 0;display:grid;gap:.6rem}
 .mcpi-ask{padding:.9rem;border:2px solid var(--mcpi-accent);border-radius:8px;background:var(--mcpi-card)}
@@ -152,10 +150,14 @@
 .mcpi-server.is-on{border-color:var(--mcpi-ink);box-shadow:inset 0 0 0 1px var(--mcpi-ink)}
 .mcpi-card-wrap .mcpi-remove{position:absolute;right:.2rem;bottom:.2rem}
 .mcpi-card-wrap[hidden]{display:none}
-.mcpi-card-share{position:absolute;right:.2rem;bottom:.2rem;width:36px;height:36px;display:grid;place-items:center;border:0;border-radius:6px;background:none;color:var(--mcpi-mute)!important;font-size:.9rem;font-weight:800}
-.mcpi-card-wrap:has(.mcpi-card-share) .mcpi-card{padding-bottom:2.3rem}
+.mcpi-card-wrap:has(.mcpi-card-tools) .mcpi-card{padding-bottom:2.4rem}
+.mcpi-card-tools{position:absolute;right:.25rem;bottom:.25rem;display:flex;align-items:center;gap:.1rem}
+.mcpi-card-wrap:has(.mcpi-remove) .mcpi-card-tools{right:2.4rem}
+.mcpi-card-share{width:36px;height:36px;display:grid;place-items:center;border:0;border-radius:6px;background:none;color:var(--mcpi-mute)!important;font-size:.9rem;font-weight:800}
 .mcpi-card-share.is-done{color:var(--mcpi-accent3)!important}
-.mcpi-card-share~.mcpi-remove{right:2.4rem}
+.mcpi-card-ai{min-height:28px;padding:0 .55rem;border:1px solid var(--mcpi-rule);border-radius:999px;background:var(--mcpi-card);color:var(--mcpi-ink)!important;font-size:.72rem!important;font-weight:800}
+.mcpi-card-share:hover,.mcpi-card-ai:hover{background:var(--mcpi-tint)}
+.mcpi-add-ai{justify-self:start}
 .mcpi-registry{display:grid;gap:.6rem;padding-top:.6rem;border-top:1px solid var(--mcpi-rule);min-width:0}
 .mcpi-registry .mcpi-label{margin:0}
 .mcpi-reg-list>.mcpi-hint{grid-column:1/-1;margin:0}

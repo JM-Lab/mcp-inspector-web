@@ -1,8 +1,9 @@
 /*
  * Server cards. Pinned, added and recently viewed servers, and registry results, all use the same card body.
  *   cardBody(server, sub)                       icon, name, host (or sub) and description
- *   cardOf(server, { ui, onOpen, onRemove, link })   a pressable card, with × for servers kept in this browser
- *   shareOf(link, ui)                           the small button on a card that copies the link opening that server
+ *   cardOf(server, { ui, onOpen, onRemove, link, onAdd })   a pressable card, with × for servers kept in this browser
+ *   cardTools(link, onAdd, ui)                  the small buttons on a card, which never open it:
+ *                                               copy the link that opens it here, and add it to an AI client (add-to-ai.js)
  */
 import { h, copyButton } from './dom.js'
 import { hostOf, iconCandidates, countsText } from './lib.js'
@@ -48,13 +49,18 @@ function linkIcon() {
   return svg
 }
 
-export const shareOf = (link, ui) => link ? copyButton(link, { label: linkIcon, copied: '✓', cls: 'mcpi-card-share', title: ui.copyLink }) : null
+export function cardTools(link, onAdd, ui) {
+  if (!link && !onAdd) return null
+  return h('span', { class: 'mcpi-card-tools' },
+    onAdd ? h('button', { type: 'button', class: 'mcpi-card-ai', text: ui.addAiShort, title: ui.addAiBtn, 'aria-label': ui.addAiBtn, onclick: (e) => { e.stopPropagation(); onAdd() } }) : null,
+    link ? copyButton(link, { label: linkIcon, copied: '✓', cls: 'mcpi-card-share', title: ui.copyLink }) : null)
+}
 
-export function cardOf(s, { ui, onOpen, onRemove, link }) {
+export function cardOf(s, { ui, onOpen, onRemove, link, onAdd }) {
   const meta = countsText(s.counts)
   return h('div', { class: 'mcpi-card-wrap' },
     h('button', { type: 'button', class: 'mcpi-server mcpi-card', 'data-key': s.key, 'aria-pressed': 'false', onclick: () => onOpen(s) },
       cardBody(s), meta ? h('span', { class: 'mcpi-card-meta', text: meta }) : null),
-    shareOf(link, ui),
+    cardTools(link, onAdd && (() => onAdd(s)), ui),
     s.custom ? h('button', { type: 'button', class: 'mcpi-remove', 'aria-label': ui.remove, title: ui.remove, text: '×', onclick: () => onRemove(s) }) : null)
 }

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add to an AI client: the component alone</title>
+<!--
+  The add-to-AI-client component on a page with nothing else: one script, no stylesheet.
+  npm run demo, then open http://localhost:8787/add-to-ai.html
+-->
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5 }
+  .server { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .8rem 1rem; border: 1px solid #d3d6dc; border-radius: 10px; margin: .6rem 0 }
+</style>
+<h1>Add to an AI client</h1>
+<p>This page loads only <code>mcp-add-to-ai.js</code>. Each row is an <code>&lt;mcp-add-to-ai&gt;</code> element, given a registry name alone or an address.</p>
+<div class="server"><span>Microsoft Learn, by registry name alone</span><mcp-add-to-ai registry="com.microsoft/microsoft-learn-mcp"></mcp-add-to-ai></div>
+<div class="server"><span>Not in the registry</span><mcp-add-to-ai registry="io.example/nothing-here"></mcp-add-to-ai></div>
+<div class="server"><span>GitHub (needs a token)</span><mcp-add-to-ai url="https://api.githubcopilot.com/mcp/" name="GitHub" header="Authorization"></mcp-add-to-ai></div>
+<div class="server"><span>In Korean</span><mcp-add-to-ai url="https://learn.microsoft.com/api/mcp" name="Microsoft Learn" lang="ko"></mcp-add-to-ai></div>
+<script src="mcp-add-to-ai.js"></script>
+</html>

@@ -1,9 +1,9 @@
 /*
- * share.js: links into the page and the install snippets for MCP clients. Plain functions, no browser.
+ * share.js: links into the page. Plain functions, no browser.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { linkOf, readLink, mergeQuery, registryEntry, slugOf, installsFor } from '../src/share.js'
+import { linkOf, readLink, mergeQuery, registryEntry } from '../src/share.js'
 
 const custom = (x) => ({ custom: true, kind: 'recent', ...x })
 
@@ -56,30 +56,4 @@ test('mergeQuery: replaces only the keys this page owns', () => {
 
 test('registryEntry: one server by name', () => {
   assert.equal(registryEntry('https://registry.modelcontextprotocol.io/v0/servers', 'io.github.x/y'), 'https://registry.modelcontextprotocol.io/v0/servers/io.github.x%2Fy/versions/latest')
-})
-
-test('slugOf: a name MCP clients accept', () => {
-  assert.equal(slugOf({ id: 'com.microsoft/microsoft-learn-mcp', url: 'https://x' }), 'microsoft-learn-mcp')
-  assert.equal(slugOf({ name: 'My Server!', url: 'https://x' }), 'my-server')
-  assert.equal(slugOf({ url: 'https://api.example.com:8443/mcp' }), 'api-example-com-8443')
-})
-
-test('installsFor: Claude Code, VS Code, Cursor and Claude, with no token in any of them', () => {
-  const open = installsFor(custom({ id: 'a/docs', url: 'https://d.example/mcp' }))
-  assert.deepEqual(open.map((x) => x.id), ['claude-code', 'vscode', 'cursor', 'claude'])
-  assert.equal(open[0].code, 'claude mcp add --transport http docs https://d.example/mcp')
-  assert.deepEqual(JSON.parse(decodeURIComponent(open[1].link.replace('vscode:mcp/install?', ''))), { name: 'docs', type: 'http', url: 'https://d.example/mcp' })
-  const cursor = new URL(open[2].link)
-  assert.equal(cursor.searchParams.get('name'), 'docs')
-  assert.deepEqual(JSON.parse(Buffer.from(cursor.searchParams.get('config'), 'base64').toString()), { url: 'https://d.example/mcp' })
-  assert.deepEqual(JSON.parse(open[2].code), { mcpServers: { docs: { url: 'https://d.example/mcp' } } })
-  assert.equal(open[3].note, 'iClaude')
-
-  const locked = installsFor(custom({ url: 'https://k.example/mcp', headers: { Authorization: 'Bearer secret' } }))
-  assert.doesNotMatch(JSON.stringify(locked), /secret/)
-  assert.match(locked[0].code, /--header "Authorization: Bearer <token>"$/)
-  const vs = JSON.parse(locked[1].code)
-  assert.equal(vs.servers['k-example'].headers.Authorization, 'Bearer ${input:token}')
-  assert.equal(vs.inputs[0].password, true)
-  assert.equal(locked[3].note, 'iClaudeHeader')
 })

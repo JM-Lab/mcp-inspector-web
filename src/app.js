@@ -12,7 +12,7 @@
  *   oauth.js     OAuth storage             form.js      inputs from a JSON Schema
  *   output.js    the answer box            panes.js     tool, prompt, resource and History panes
  *   cards.js     server cards              registry.js  the MCP Registry panel
- *   share.js     links into the page, and how to add a server to MCP clients
+ *   share.js     links into the page        add-to-ai.js     add a server to an AI client (stands alone)
  *
  *   mount(root, options)   see README.md for every option
  */
@@ -24,7 +24,8 @@ import { form } from './form.js'
 import { panes } from './panes.js'
 import { cardOf } from './cards.js'
 import { registryPanel } from './registry.js'
-import { linkOf, readLink, registryEntry, installsFor, mergeQuery } from './share.js'
+import { linkOf, readLink, registryEntry, mergeQuery } from './share.js'
+import { openAddToAi } from './add-to-ai.js'
 import { CAP, REGISTRY, STORE_PREFIX, hostOf, cleanUrl, pushFront, filled, loadStore, saveStore, explainError, registryCard } from './lib.js'
 
 const TABS = [['tools', 'Tools'], ['prompts', 'Prompts'], ['resources', 'Resources'], ['history', 'History']]
@@ -194,26 +195,28 @@ export function mount(root, options) {
   }
 
   /*
-   * Share & add to a client: the link that opens this server here, and per client how to add it.
-   * Redrawn only when the link changes, so an open box stays open.
+   * Sharing: the link that opens a server here (share.js), and adding it to an AI client (add-to-ai.js, a popup of its own).
+   * Cards carry both as small buttons; the open server shows them in its Share box.
    */
   const pageUrl = () => cfg.pageUrl || location.origin + location.pathname
   const shareLink = (s) => pageUrl() + linkOf(s)
+  /* The server as you set it up here, token included: the popup puts it in what you copy (and can take it out). */
+  const addTo = (s) => openAddToAi({ url: s.url, name: s.name, id: s.id, headers: s.headers, authHeader: s.authHeader, hint: s.hint, oauth: !!s.wantsAuth && !s.headers }, { lang: cfg.lang, ui: cfg.addToAiUi, root })
+  /* Redrawn only when the link changes, so an open box stays open. */
   function renderShare() {
     const link = shareLink(current)
     if (el.share.dataset.link === link) return
     el.share.dataset.link = link
-    const copyBtn = (text) => copyButton(text, { label: ui.copy, copied: ui.copied })
-    const linkInput = h('input', { type: 'text', readonly: true, value: link, class: 'mcpi-share-link', 'aria-label': ui.shareLink, onfocus: (e) => e.target.select() })
+    const s = current
     el.share.replaceChildren(
       h('summary', { text: ui.share }),
       h('p', { class: 'mcpi-label', text: ui.shareLink }),
-      h('div', { class: 'mcpi-share-row' }, linkInput, copyBtn(link)),
+      h('div', { class: 'mcpi-share-row' },
+        h('input', { type: 'text', readonly: true, value: link, class: 'mcpi-share-link', 'aria-label': ui.shareLink, onfocus: (e) => e.target.select() }),
+        copyButton(link, { label: ui.copy, copied: ui.copied })),
       h('p', { class: 'mcpi-hint is-shown', text: ui.shareNote }),
-      ...installsFor(current).map((x) => h('div', { class: 'mcpi-install', 'data-client': x.id },
-        h('p', { class: 'mcpi-label' }, x.label, x.file ? h('code', { text: x.file }) : null, x.link ? h('a', { href: x.link, class: 'mcpi-install-open', text: ui.openIn.replace('{v}', x.label) }) : null),
-        h('div', { class: 'mcpi-share-row' }, h('pre', { text: x.code }), copyBtn(x.code)),
-        x.note ? h('p', { class: 'mcpi-hint is-shown', text: ui[x.note] }) : null)))
+      h('p', { class: 'mcpi-label', text: ui.addAi }),
+      h('button', { type: 'button', class: 'mcpi-btn mcpi-add-ai', text: ui.addAiBtn, onclick: () => addTo(s) }))
   }
 
   async function connect(server, quiet, opts) {
@@ -261,7 +264,7 @@ export function mount(root, options) {
 
   /* Servers are laid out as cards. Pressing one opens its inspector below. */
   function renderServers() {
-    const card = (s) => cardOf(s, { ui, onOpen: open, onRemove: remove, link: shareLink(s) })
+    const card = (s) => cardOf(s, { ui, onOpen: open, onRemove: remove, link: shareLink(s), onAdd: addTo })
     const group = (label, list, extra) => [h('p', { class: 'mcpi-label' }, label, list.length && list[0].custom ? h('span', { text: ' ' + list.length + ' / ' + CAP }) : null), extra, list.length ? h('div', { class: 'mcpi-cards' }, list.map(card)) : null]
     const recent = ofKind('recent')
     el.servers.replaceChildren(...[
@@ -402,7 +405,7 @@ export function mount(root, options) {
   el.auth.append(authNote, h('p', { class: 'mcpi-label', text: 'OAuth' }), signIn, h('p', { class: 'mcpi-label', text: ui.token }), tForm)
 
   const cardMeta = (c) => ({ id: c.id, name: c.name, desc: c.desc, icon: c.icon, web: c.web, hint: c.hint, hintValue: c.hintValue })
-  const registry = cfg.registry ? registryPanel({ cfg, ui, linkOf: (c) => shareLink({ custom: true, id: c.id, url: c.url }), onPick: (c) => open(add(c.url, 'recent', cardMeta(c))) }) : null
+  const registry = cfg.registry ? registryPanel({ cfg, ui, linkOf: (c) => shareLink({ custom: true, id: c.id, url: c.url }), onAdd: (c) => addTo(Object.assign({}, cardMeta(c), { url: c.url })), onPick: (c) => open(add(c.url, 'recent', cardMeta(c))) }) : null
 
   main.append(
     h('div', { class: 'mcpi-top' },

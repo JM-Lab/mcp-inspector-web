@@ -41,10 +41,22 @@ before(async () => {
   mcp = await startMcpServer({ cors: true })
   const js = (await build({ entryPoints: ['src/auto.js'], bundle: true, format: 'iife', platform: 'browser', write: false, logLevel: 'silent' })).outputFiles[0].text
   const css = (await build({ entryPoints: ['src/style.css'], bundle: true, write: false, logLevel: 'silent' })).outputFiles[0].text
+  /* The add-to-AI-client component alone, on a page with nothing else (no stylesheet either). */
+  const addTo = (await build({ entryPoints: ['src/add-to-ai-auto.js'], bundle: true, format: 'iife', platform: 'browser', write: false, logLevel: 'silent' })).outputFiles[0].text
+  const addToPage = `<!doctype html><html lang="en"><meta charset="utf-8"><title>component</title>
+<mcp-add-to-ai id="open" url="https://docs.example/mcp" name="Docs" registry="io.example/docs"></mcp-add-to-ai>
+<mcp-add-to-ai id="locked" url="https://k.example/mcp" name="Keyed" header="Authorization"></mcp-add-to-ai>
+<mcp-add-to-ai id="ko" url="https://docs.example/mcp" lang="ko"></mcp-add-to-ai>
+<mcp-add-to-ai id="byname" registry="io.test/docs" registry-api="/registry/v0/servers"></mcp-add-to-ai>
+<mcp-add-to-ai id="renamed" registry="io.test/docs" name="My docs" registry-api="/registry/v0/servers"></mcp-add-to-ai>
+<mcp-add-to-ai id="missing" registry="io.test/nothing" registry-api="/registry/v0/servers"></mcp-add-to-ai>
+<div id="host"></div><script src="/mcp-add-to-ai.js"></script>`
   /* A stand-in for the MCP Registry: one server by name, and an empty list for the panel. */
   const entry = { server: { name: 'io.test/local', title: 'Registry test server', description: 'from the registry', remotes: [{ type: 'streamable-http', url: mcp.base + '/from-registry' }] } }
   const locked = { server: { name: 'io.test/locked', title: 'Locked', remotes: [{ type: 'streamable-http', url: mcp.base + '/token-registry', headers: [{ name: 'x-test-key', value: '\${KEY}', isRequired: true, isSecret: true }] }] } }
-  const registry = { 'io.test/local': entry, 'io.test/locked': locked }
+  /* For the AI component: an entry with an https remote (what it accepts) and the header it needs. */
+  const docs = { server: { name: 'io.test/docs', title: 'Docs from the registry', remotes: [{ type: 'streamable-http', url: 'https://docs.example/mcp', headers: [{ name: 'X-Docs-Key', isSecret: true }] }] } }
+  const registry = { 'io.test/local': entry, 'io.test/locked': locked, 'io.test/docs': docs }
   const options = { lang: 'en', registry: '/registry/v0/servers', servers: [{ key: 'local', name: 'Local test server', url: mcp.base + '/mcp' }] }
   const html = `<!doctype html><html lang="en"><meta charset="utf-8"><title>test</title><link rel="stylesheet" href="/mcp-inspector.css">
 <div id="mcpi"></div><script>window.MCP_INSPECTOR = ${JSON.stringify(options)}</script><script src="/mcp-inspector.js"></script>`
@@ -56,6 +68,8 @@ before(async () => {
       const body = path === '/registry/v0/servers' ? { servers: [], metadata: {} } : registry[name as keyof typeof registry]
       res.writeHead(body ? 200 : 404, { 'content-type': 'application/json' }); res.end(JSON.stringify(body || { error: 'not found' })); return
     }
+    if (path === '/mcp-add-to-ai.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(addTo); return }
+    if (path === '/add-to-ai.html') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(addToPage); return }
     if (path === '/mcp-inspector.css') { res.writeHead(200, { 'content-type': 'text/css' }); res.end(css); return }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(html)
   })
@@ -173,15 +187,17 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.equal(await b.run(`localStorage.getItem('mcpi:oauth')`), null, 'the pending sign-in was used up')
   })
 
-  await t.test('a registry link opens that server, and the share box offers the same link', async () => {
+  await t.test('a registry link opens that server, and the share box offers the same link and the AI button', async () => {
     await open('?r=io.test/local')
     await b.until(`$t.status() === 'Connected'`)
     assert.equal(await b.run(`document.querySelector('.mcpi-id h2').textContent`), 'Registry test server')
     assert.equal(await b.run('location.search'), '?r=io.test/local')
     assert.equal(await b.run(`document.querySelector('.mcpi-share-link').value`), origin + '/?r=io.test/local')
-    const clients = await b.run(`[...document.querySelectorAll('.mcpi-install')].map((x) => x.dataset.client)`)
-    assert.deepEqual(clients, ['claude-code', 'vscode', 'cursor', 'claude'])
-    assert.equal(await b.run(`document.querySelector('[data-client=claude-code] pre').textContent`), 'claude mcp add --transport http local ' + mcp.base + '/from-registry')
+    await b.run(`document.querySelector('.mcpi-share .mcpi-add-ai').click()`)
+    await b.run(`[...document.querySelectorAll('.mcpi-addto-tile')].find((x) => x.dataset.client === 'claude-code').click()`)
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail pre').textContent`), 'claude mcp add --transport http local ' + mcp.base + '/from-registry')
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
   })
 
   await t.test('a registry entry that needs a header shows its field at once, and the token reaches the server', async () => {
@@ -216,14 +232,171 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.match(await b.run('location.search'), /^\?lang=en&u=http:\/\/127\.0\.0\.1:\d+\/token&h=x-test-key$/, 'rewritten in the short form')
   })
 
-  await t.test('every card has a button that copies the link opening that server, without opening it', async () => {
+  await t.test('every card has a link button that copies its link, and an AI button, and neither opens it', async () => {
     await open()
-    const share = `document.querySelector('.mcpi-server[data-key=local]').parentNode.querySelector('.mcpi-card-share')`
-    assert.equal(await b.run(share + '.dataset.copy'), origin + '/?s=local')
-    await b.run(share + '.click()')
-    assert.equal(await b.run(`document.querySelector('.mcpi-main').hidden`), true, 'pressing it does not open the server')
-    const kept = await b.run(`[...document.querySelectorAll('.mcpi-servers .mcpi-card-share')].map((x) => x.dataset.copy)`)
-    assert.ok(kept.includes(origin + '/?r=io.test/local'), 'a server from the registry is linked by its name')
+    const tool = (key: string, sel: string) => `[...document.querySelectorAll('.mcpi-card-wrap')].find((w) => w.querySelector('.mcpi-server')?.dataset.key === ${JSON.stringify(key)}).querySelector('${sel}')`
+    assert.equal(await b.run(tool('local', '.mcpi-card-share') + '.dataset.copy'), origin + '/?s=local')
+    await b.run(tool('local', '.mcpi-card-share') + '.click()')
+    assert.equal(await b.run(`document.querySelector('.mcpi-main').hidden`), true, 'copying the link does not open the server')
+    assert.equal(await b.run(tool(mcp.base + '/from-registry', '.mcpi-card-share') + '.dataset.copy'), origin + '/?r=io.test/local', 'a registry server is linked by its name')
+
+    /* A server you added yourself, with a header token: the link names the header, and nothing anywhere holds the token. */
+    assert.equal(await b.run(tool(mcp.base + '/token', '.mcpi-card-share') + '.dataset.copy'), origin + '/?u=' + mcp.base + '/token&h=x-test-key')
+    await b.run(tool(mcp.base + '/token', '.mcpi-card-ai') + '.click()')
+    assert.equal(await b.run(`document.querySelector('dialog.mcpi-addto').open`), true)
+    assert.equal(await b.run(`document.querySelector('.mcpi-main').hidden`), true, 'the AI button does not open the server either')
+    await b.run(`[...document.querySelectorAll('.mcpi-addto-tile')].find((x) => x.dataset.client === 'gemini').click()`)
+    /* As you set it up here: your token is in, so the command works as it is. */
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-secret input').checked`), true)
+    assert.match(await b.run(`document.querySelector('.mcpi-addto-detail pre').textContent`), /--header "x-test-key: secret"$/)
+    assert.match(await b.run(`document.querySelector('.mcpi-addto-note').textContent`), /Your own token is in this/)
+    /* Taken out, to pass it on: <token> where it goes, and a note to put yours in. */
+    await b.run(`document.querySelector('.mcpi-addto-secret input').click()`)
+    assert.match(await b.run(`document.querySelector('.mcpi-addto-detail pre').textContent`), /--header "x-test-key: <token>"$/)
+    assert.doesNotMatch(await b.run(`document.querySelector('dialog.mcpi-addto').textContent`), /secret/)
+    assert.match(await b.run(`document.querySelector('.mcpi-addto-note').textContent`), /Put yours where <token> is/)
+    await b.run(`$t.button('Close', document.querySelector('dialog.mcpi-addto')).click()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+  })
+
+  await t.test('the AI component on a page of its own: one click where the client allows, steps where it does not', async () => {
+    await b.go(origin + '/add-to-ai.html')
+    assert.equal(await b.run(`document.querySelector('#open button').textContent`), 'Add to an AI client')
+    assert.equal(await b.run(`document.querySelector('#ko button').textContent`), 'AI 클라이언트에 추가', 'lang="ko"')
+    await b.run(`document.querySelector('#open button').click()`)
+    const pick = (id: string) => b.run(`[...document.querySelectorAll('.mcpi-addto-tile')].find((x) => x.dataset.client === '${id}').click()`)
+    const detail = `document.querySelector('.mcpi-addto-detail')`
+    assert.equal(await b.run(`[...document.querySelectorAll('.mcpi-addto-tile')].length`), 35)
+
+    await pick('vscode')
+    const href = await b.run(detail + `.querySelector('a.mcpi-addto-go').getAttribute('href')`)
+    assert.deepEqual(JSON.parse(decodeURIComponent(href.replace('vscode:mcp/install?', ''))), { name: 'docs', type: 'http', url: 'https://docs.example/mcp' })
+    await pick('cursor')
+    assert.match(await b.run(detail + `.querySelector('a.mcpi-addto-go').href`), /^cursor:\/\/anysphere\.cursor-deeplink\/mcp\/install\?name=docs&config=/)
+    await pick('codex')
+    assert.equal(await b.run(detail + `.querySelector('pre').textContent`), 'codex mcp add docs --url https://docs.example/mcp')
+    await pick('windsurf')
+    assert.match(await b.run(detail + `.textContent`), /mcp_config\.json/)
+    await pick('claude')
+    assert.equal(await b.run(detail + `.querySelectorAll('ol li').length`), 3, 'settings-only clients get steps')
+    assert.equal(await b.run(detail + `.querySelector('pre').textContent`), 'https://docs.example/mcp')
+    assert.equal(await b.run(`getComputedStyle(document.querySelector('dialog.mcpi-addto')).borderRadius`), '12px', 'it brings its own styles')
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+
+    /* The last choice is remembered, and a server that needs a token gets the note for clients that take none. */
+    await b.run(`document.querySelector('#locked button').click()`)
+    assert.equal(await b.run(detail + '.dataset.client'), 'claude', 'opens on the client picked last')
+    assert.match(await b.run(detail + `.querySelector('.mcpi-addto-note').textContent`), /takes header tokens only in some organizations/)
+    await pick('codex')
+    assert.match(await b.run(detail + `.querySelector('pre').textContent`), /--bearer-token-env-var KEYED_TOKEN$/)
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+
+    /* Given by registry name alone: the address, title and needed header come from the registry. */
+    await b.until(`document.querySelector('#byname').dataset.state === 'ready'`)
+    await b.run(`document.querySelector('#byname button').click()`)
+    await b.until(`document.querySelector('dialog.mcpi-addto')`)
+    assert.equal(await b.run(`document.querySelector('dialog.mcpi-addto h2').textContent`), 'Add Docs from the registry to an AI client')
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-head code').textContent`), 'https://docs.example/mcp')
+    await pick('claude-code')
+    assert.equal(await b.run(detail + `.querySelector('pre').textContent`), 'claude mcp add --transport http docs https://docs.example/mcp --header "X-Docs-Key: <token>"', 'named after the registry entry, with its header')
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+    /* What is given directly wins over the registry. */
+    await b.until(`document.querySelector('#renamed').dataset.state === 'ready'`)
+    await b.run(`document.querySelector('#renamed button').click()`)
+    await b.until(`document.querySelector('dialog.mcpi-addto')`)
+    assert.equal(await b.run(`document.querySelector('dialog.mcpi-addto h2').textContent`), 'Add My docs to an AI client')
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+    /* A name the registry does not know says so, on a button that cannot be pressed. */
+    await b.until(`document.querySelector('#missing').dataset.state === 'missing'`)
+    assert.equal(await b.run(`document.querySelector('#missing button').disabled`), true)
+    assert.equal(await b.run(`document.querySelector('#missing button').textContent`), 'Not in the MCP Registry')
+    /* And in JS, a registry name alone opens the popup once it is read. */
+    await b.run(`MCPAddToAI.openAddToAi({ id: 'io.test/docs' }, { registryApi: '/registry/v0/servers' })`)
+    await b.until(`document.querySelector('dialog.mcpi-addto')`)
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-head code').textContent`), 'https://docs.example/mcp')
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+
+    /* Each client has its icon; one that cannot load shows a letter, and icons: false leaves them out. */
+    await b.run(`MCPAddToAI.openAddToAi({ url: 'https://x.example/mcp' }, { icons: { claude: '/no-such-icon.svg' } })`)
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-addto-tile .mcpi-addto-ico').length`), 35)
+    assert.match(await b.run(`document.querySelector('[data-client=vscode] .mcpi-addto-ico').dataset.icon`), /^https:\/\/cdn\.jsdelivr\.net\//)
+    assert.equal(await b.run(`document.querySelector('[data-client=cursor] .mcpi-addto-ico').classList.contains('is-mono')`), true, 'a mono icon follows the text color')
+    await b.until(`document.querySelector('[data-client=claude] .mcpi-addto-ico').textContent === 'Cl'`)
+    assert.equal(await b.run(`document.querySelector('[data-client=droid] .mcpi-addto-ico').textContent`), 'FD', 'no icon on the CDN: initials')
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+    await b.run(`MCPAddToAI.openAddToAi({ url: 'https://x.example/mcp' }, { icons: false })`)
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-addto-ico').length`), 0)
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+
+    /* An install link that opens nothing (no such app here) says so after a moment, and opens the by-hand setup. */
+    await b.run(`MCPAddToAI.openAddToAi({ url: 'https://x.example/mcp' }, { mobile: false })`)
+    await b.run(`document.querySelector('[data-client=vscode]').click()`)
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail .mcpi-addto-away').hidden`), true)
+    await b.run(`document.querySelector('.mcpi-addto-detail a.mcpi-addto-go').click()`)
+    await b.until(`!document.querySelector('.mcpi-addto-detail .mcpi-addto-away').hidden`, 6000)
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-manual').open`), true)
+    assert.match(await b.run(`document.querySelector('.mcpi-addto-get').href`), /^https:\/\/code\.visualstudio\.com\//)
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+
+    /* On a phone: said at the top, Claude and ChatGPT first, the rest marked Computer only with their one click off. */
+    await b.run(`MCPAddToAI.openAddToAi({ url: 'https://x.example/mcp' }, { mobile: true })`)
+    assert.equal(await b.run(`!!document.querySelector('.mcpi-addto-mobile')`), true)
+    assert.deepEqual(await b.run(`[...document.querySelectorAll('.mcpi-addto-tile')].slice(0, 2).map((x) => x.dataset.client)`), ['claude', 'chatgpt'])
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-group').dataset.group`), 'app', 'chat apps come first')
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-addto-tile.is-away').length`), 28)
+    assert.equal(await b.run(`document.querySelector('[data-client=cursor] span:last-child').textContent`), 'Computer only')
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail').dataset.client`), 'claude', 'it opens on one that works here')
+    await b.run(`document.querySelector('[data-client=cursor]').click()`)
+    assert.match(await b.run(`document.querySelector('.mcpi-addto-detail .mcpi-addto-away').textContent`), /runs on a computer/)
+    assert.equal(await b.run(`!!document.querySelector('.mcpi-addto-detail a.mcpi-addto-go')`), false, 'no one-click link on a phone')
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-manual').open`), true, 'the setup is there to copy')
+    assert.doesNotMatch(await b.run(`document.querySelector('.mcpi-addto-detail').textContent`), /null|undefined/)
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+
+    /* Found on its own, from an iPhone's user agent. */
+    const desktopUa = await b.run('navigator.userAgent')
+    await b.send('Emulation.setUserAgentOverride', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' })
+    await b.go(origin + '/add-to-ai.html')
+    await b.run(`MCPAddToAI.openAddToAi({ url: 'https://x.example/mcp' })`)
+    assert.equal(await b.run(`!!document.querySelector('.mcpi-addto-mobile')`), true, 'an iPhone is detected')
+    await b.send('Emulation.setUserAgentOverride', { userAgent: desktopUa })
+    await b.go(origin + '/add-to-ai.html')
+    await b.run(`MCPAddToAI.openAddToAi({ url: 'https://x.example/mcp' })`)
+    assert.equal(await b.run(`!!document.querySelector('.mcpi-addto-mobile')`), false, 'a desktop is not')
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+
+    /* Groups, and a search over them: by name or group, Enter picks the first, and no match says so. */
+    await b.run(`MCPAddToAI.openAddToAi({ url: 'https://x.example/mcp' }, { mobile: false })`)
+    assert.deepEqual(await b.run(`[...document.querySelectorAll('.mcpi-addto-group')].map((g) => g.dataset.group)`), ['agent', 'editor', 'app'])
+    const find = (text: string) => b.run(`(() => { const s = document.querySelector('.mcpi-addto-search'); s.value = ${JSON.stringify(text)}; s.dispatchEvent(new Event('input')); return [...document.querySelectorAll('.mcpi-addto-tile')].filter((x) => !x.hidden).map((x) => x.dataset.client) })()`)
+    assert.deepEqual(await find('zed'), ['zed'])
+    assert.equal((await find('chat apps')).length, 7, 'a group name finds its clients')
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-addto-group:not([hidden])').length`), 1, 'empty groups hide')
+    await find('kiro')
+    await b.run(`document.querySelector('.mcpi-addto-search').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))`)
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail').dataset.client`), 'kiro')
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail a.mcpi-addto-go').target`), '_blank', 'a web install link opens in a new tab')
+    assert.deepEqual(await find('nothing like this'), [])
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-groups + .mcpi-addto-hint').hidden`), false)
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+
+    /* The same through the script API, into any element. */
+    await b.run(`document.querySelector('#host').append(MCPAddToAI.addToAiButton({ url: 'https://x.example/mcp', name: 'X' }, { label: 'Add X' }))`)
+    await b.run(`document.querySelector('#host button').click()`)
+    assert.equal(await b.run(`document.querySelector('dialog.mcpi-addto h2').textContent`), 'Add X to an AI client')
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
   })
 
   await t.test('no uncaught errors in the page', () => {
