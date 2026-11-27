@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, so a breaking change in the MCP SDK or the public scenario server shows up even with no commits.
+    - cron: '0 0 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      # Browser tests use the Chrome on the runner; on CI they fail rather than skip when it is missing.
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm pack --dry-run
