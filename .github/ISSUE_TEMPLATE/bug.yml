@@ -1,0 +1,50 @@
+name: Bug report
+description: Something in the inspector does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas and questions go to [Discussions](https://github.com/JM-Lab/mcp-inspector-web/discussions).
+        A server that does not allow CORS cannot be reached from any web page; see [what a server needs](https://github.com/JM-Lab/mcp-inspector-web#what-a-server-needs-to-be-reachable).
+  - type: input
+    id: server
+    attributes:
+      label: Server
+      description: The server address if it is public, otherwise what kind of server it is.
+      placeholder: https://example.com/mcp
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - Live demo
+        - npx mcp-inspector-web
+        - Embedded in my page (npm or CDN)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw.
+    validations:
+      required: true
+  - type: textarea
+    id: history
+    attributes:
+      label: History and console
+      description: The messages from the History tab, and any errors in the browser console.
+      render: text
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: Chrome 142, Safari 26
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: mcp-inspector-web version
+      placeholder: 0.1.0
