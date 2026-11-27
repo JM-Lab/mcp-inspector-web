@@ -4,7 +4,7 @@
  *   npm run screenshots                                         the live demo
  *   PAGE=http://localhost:8787/?lang=en npm run screenshots     the local demo (npm run demo in another terminal)
  *   CHROME=/path/to/chrome                                      another browser
- * It opens Microsoft Learn from the registry, runs a tool and opens History, so it needs the network.
+ * It opens Microsoft Learn from the registry, runs a tool, opens Debug, the Share box and the Add to AI popup, so it needs the network.
  */
 import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -46,10 +46,10 @@ try {
   const clipOf = (max) => `(() => { const r = document.querySelector('.mcpi-main').getBoundingClientRect(); return { x: r.x - 16, y: r.y + scrollY - 16, width: r.width + 32, height: Math.min(r.height + 32, ${max}) } })()`
   await shot('tool.png', clipOf(720))
 
-  /* 3. History, with one entry open. */
-  await b.run(`[...document.querySelectorAll('.mcpi-tab')].find((t) => t.textContent.startsWith('History')).click()`)
+  /* 4. Debug, with one request open (the tool call, with its message and answer). */
+  await b.run(`[...document.querySelectorAll('.mcpi-tab')].find((t) => t.textContent.startsWith('Debug')).click()`)
   await sleep(200)
-  await b.run(`(() => { const d = document.querySelector('.mcpi-history details:nth-child(2)'); if (d) d.open = true })()`)
+  await b.run(`(() => { const d = [...document.querySelectorAll('.mcpi-dbg-row')].find((x) => /tools\\/call/.test(x.textContent)); if (d) d.open = true })()`)
   await sleep(200)
   await shot('history.png', clipOf(1000))
 

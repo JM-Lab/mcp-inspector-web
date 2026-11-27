@@ -25,6 +25,8 @@ export interface MountOptions {
   pageUrl?: string | null
   /** Replaces any string of the add-to-AI-client popup. */
   addToAiUi?: Record<string, string | string[]>
+  /** Replaces any string of the debugger (the Debug tab and the failure notice). */
+  debugUi?: Record<string, unknown>
   /** Keep one server open: the first well-known one on a visit with no link, the next one after removing the open one. Default true. */
   openFirst?: boolean
   /** A link (?u=, ?r=) to an address on this computer or a private network waits for a press before connecting. Default: on a public page, yes; on localhost, no. true or false sets it. */
@@ -52,6 +54,8 @@ export class Conn {
   error: string
   needAuth: boolean
   log: unknown[]
+  /** Every HTTP request and JSON-RPC message of this connection (see mcp-inspector-web/debug). */
+  trace: import('./debug').Trace
   client: unknown
   lastMs?: number
   connect(opts?: { oauth?: boolean; callback?: URLSearchParams }): Promise<Record<string, unknown>>
@@ -60,4 +64,5 @@ export class Conn {
 }
 
 export { addToAiButton, openAddToAi, clientsFor, fromRegistry, defineAddToAi } from './add-to-ai.js'
+export { createTrace, debugView, debugNotice } from './debug.js'
 export * from './lib.js'

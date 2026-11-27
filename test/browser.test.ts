@@ -154,14 +154,38 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     await b.until(`$t.count('Tools') === 5`)
   })
 
-  await t.test('History holds every message with its answer', async () => {
-    await b.run(`$t.tab('History').click()`)
-    const rows = await b.run(`[...document.querySelectorAll('.mcpi-history summary code')].map((c) => c.textContent)`)
-    for (const m of ['initialize', 'tools/list', 'tools/call', 'prompts/get', 'completion/complete', 'resources/read', 'notifications/cancelled']) assert.ok(rows.includes(m), m + ' is in History')
+  await t.test('Debug holds every request with the JSON-RPC message it carried and its answer', async () => {
+    await b.run(`$t.tab('Debug').click()`)
+    const rows: string[] = await b.run(`[...document.querySelectorAll('.mcpi-dbg-row summary code')].map((c) => c.textContent)`)
+    for (const m of ['initialize', 'tools/list', 'tools/call', 'prompts/get', 'completion/complete', 'resources/read', 'notifications/cancelled']) assert.ok(rows.some((r) => r.startsWith('POST /mcp · ' + m)), m + ' is in Debug, on its HTTP request')
+    /* Opening a row shows what was sent and what came back. */
+    const row = `[...document.querySelectorAll('.mcpi-dbg-row')].find((x) => x.querySelector('code').textContent.startsWith('POST /mcp · tools/list'))`
+    await b.run(`${row}.open = true`)
+    /* The newest tools/list may still be waiting for its answer (the list just changed): the row fills in when it comes. */
+    await b.until(`/"tools": \\[/.test(${row}.textContent)`, 5000)
+    const opened = await b.run(`${row}.textContent`)
+    assert.match(opened, /"method": "tools\/list"/)
+    assert.match(opened, /"tools": \[/)
+    assert.match(opened, /mcp-session-id: •••/, 'the session id is hidden')
+    /* A row already drawn is left in place when more comes in, so what is open and selected in it stays. */
+    await b.run(`window.__row = ${row}; $t.button('Ping').click()`)
+    await b.until(`[...document.querySelectorAll('.mcpi-dbg-row summary code')].some((c) => /· ping #/.test(c.textContent))`, 5000)
+    assert.equal(await b.run(`window.__row.isConnected && window.__row.open && window.__row === ${row}`), true)
+    /* Pressing a filter that hides a row, then asking to show it, still lands on it. */
+    await b.run(`document.querySelector('.mcpi-dbg-pill[data-filter=errors]').click()`)
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-dbg-row').length`), 0)
+    await b.run(`document.querySelector('.mcpi-dbg-pill[data-filter=all]').click()`)
+    /* No OAuth here, so no OAuth flow box, and nothing failed. */
+    assert.equal(await b.run(`document.querySelector('.mcpi-dbg-flow').hidden`), true)
+    assert.equal(await b.run(`document.querySelector('.mcpi-dbg-notice')?.hidden ?? true`), true)
+    /* The plain log, one line each. */
+    await b.run(`document.querySelector('.mcpi-dbg-pill[data-mode=log]').click()`)
+    assert.match(await b.run(`document.querySelector('.mcpi-dbg-log').textContent`), /→ POST {3}http:\/\/127\.0\.0\.1:\d+\/mcp {2}tools\/call #\d+/)
+    await b.run(`document.querySelector('.mcpi-dbg-pill[data-mode=list]').click()`)
   })
 
   await t.test('Ping answers with a time', async () => {
-    await b.run(`$t.button('Ping').click()`)
+    await b.run(`[...document.querySelectorAll('button')].find((x) => x.textContent.startsWith('Ping')).click()`)
     await b.until(`[...document.querySelectorAll('button')].some((x) => /^Ping \\d+ ms$/.test(x.textContent))`)
   })
 
@@ -181,6 +205,21 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.ok(kept.includes(mcp.base + '/token'), 'the added server is still listed after a reload')
   })
 
+  /* No token, code or verifier anywhere on the page or in localStorage (tokens live in sessionStorage, by design). */
+  const noSecrets = async (secrets: string[]) => {
+    await b.run(`document.querySelectorAll('.mcpi-dbg-row').forEach((d) => { d.open = true })`)
+    await new Promise((r) => setTimeout(r, 100))
+    const seen = await b.run(`document.documentElement.outerHTML + JSON.stringify(Object.entries(localStorage))`)
+    for (const s of secrets) assert.ok(!seen.includes(s), s + ' is not on the page or in localStorage')
+  }
+  const addWithOauth = (path: string) => b.run(`(() => {
+    const f = document.querySelector('.mcpi-add')
+    $t.set(f.querySelector('input[type=url]'), ${JSON.stringify(mcp.base)} + ${JSON.stringify(path)})
+    $t.set(f.querySelector('.mcpi-add-auth'), 'oauth')
+    f.requestSubmit()
+  })()`)
+  const notice = `document.querySelector('.mcpi-dbg-notice:not([hidden])')?.innerText || ''`
+
   await t.test('OAuth with PKCE, through a real redirect and back', async () => {
     const before = mcp.oauth.tokenCalls
     await b.run(`(() => {
@@ -197,6 +236,62 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.equal(await b.run(`$t.count('Tools')`), 5)
     assert.equal(await b.run(`Object.keys(sessionStorage).some((k) => k.startsWith('mcpi:tokens:'))`), true, 'tokens are in sessionStorage')
     assert.equal(await b.run(`localStorage.getItem('mcpi:oauth')`), null, 'the pending sign-in was used up')
+    /* Nothing failed, so nothing new on screen. In Debug, the OAuth flow from before and after the redirect, all eight steps done. */
+    assert.equal(await b.run(`document.querySelector('.mcpi-dbg-notice').hidden`), true)
+    await b.run(`$t.tab('Debug').click()`)
+    assert.deepEqual(await b.run(`[...document.querySelectorAll('.mcpi-dbg-strip [data-step]')].map((x) => x.dataset.step + ':' + x.dataset.status)`),
+      ['unauth:ok', 'resource:ok', 'server:ok', 'register:ok', 'redirect:ok', 'return:ok', 'token:ok', 'ready:ok'])
+    assert.equal(await b.run(`Object.keys(localStorage).some((k) => k.startsWith('mcpi:trip:'))`), false, 'the kept sign-in was read back and removed')
+    await b.run(`document.querySelector('.mcpi-dbg-pill[data-mode=log]').click()`)
+    const log = await b.run(`document.querySelector('.mcpi-dbg-log').textContent`)
+    assert.match(log, /POST {3}http:\/\/127\.0\.0\.1:\d+\/oauth-as\/token .*"code":"•••","code_verifier":"•••"/)
+    assert.match(log, /"access_token":"•••"/)
+    await b.run(`document.querySelector('.mcpi-dbg-pill[data-mode=list]').click()`)
+    await noSecrets(['good-token', 'code-1'])
+  })
+
+
+  await t.test('OAuth that cannot register: the notice says where it stopped, and its button opens Debug at that step', async () => {
+    await open()
+    await addWithOauth('/nodcr-mcp')
+    await b.until(`/step 4/.test(${notice})`, 10000)
+    assert.match(await b.run(notice), /OAuth stopped at step 4, Client registration\.\s*The authorization server offers no dynamic client registration/)
+    assert.equal(await b.run('location.origin'), origin, 'still on this page')
+    await b.run(`$t.button('Show in Debug').click()`)
+    assert.equal(await b.run(`document.querySelector('.mcpi-tab.is-on').textContent.startsWith('Debug')`), true)
+    assert.equal(await b.run(`document.querySelector('.mcpi-dbg-flow').open`), true)
+    assert.equal(await b.run(`document.querySelector('.mcpi-dbg-strip [data-step=register]').dataset.status`), 'fail')
+    /* The row it points at is the authorization server metadata (no registration_endpoint), opened and marked. */
+    assert.match(await b.run(`document.querySelector('.mcpi-dbg-row.is-hit').textContent`), /oauth-authorization-server\/nodcr-as/)
+    assert.equal(await b.run(`document.querySelector('.mcpi-dbg-row.is-hit').open`), true)
+    /* The Debug tab carries a red mark while the connection is failed. */
+    assert.equal(await b.run(`!!document.querySelector('.mcpi-tab i.is-bad')`), true)
+  })
+
+  await t.test('a code the token endpoint refuses: stopped at the token exchange with its error, and no second trip by itself', async () => {
+    const calls = mcp.oauth.tokenCalls
+    await open()
+    await addWithOauth('/badtoken-mcp')
+    await b.until(`location.origin === ${JSON.stringify(origin)} && /step 7/.test(${notice})`, 20000)
+    await b.run(HELPERS)
+    assert.match(await b.run(notice), /OAuth stopped at step 7, Token exchange\.\s*The server answered 400: invalid_grant/)
+    assert.ok(mcp.oauth.tokenCalls > calls, 'the code was tried')
+    await new Promise((r) => setTimeout(r, 500))
+    assert.equal(await b.run('location.origin + !/code=/.test(location.search)'), origin + 'true', 'the SDK retrying sign-in by itself does not leave the page')
+    await b.run(`$t.button('Show in Debug').click()`)
+    assert.deepEqual(await b.run(`[...document.querySelectorAll('.mcpi-dbg-strip [data-step]')].map((x) => x.dataset.status)`), ['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'fail', 'none'])
+    await noSecrets(['code-bad'])
+  })
+
+  await t.test('a token endpoint that does not allow the browser: no answer, and the reason is CORS (the server is there)', async () => {
+    await open()
+    await addWithOauth('/nocors-mcp')
+    await b.until(`location.origin === ${JSON.stringify(origin)} && /is there/.test(${notice})`, 20000)
+    await b.run(HELPERS)
+    assert.match(await b.run(notice), /OAuth stopped at step 7, Token exchange\.\s*127\.0\.0\.1:\d+ is there, but does not allow requests from this page \(CORS\)/)
+    await b.run(`$t.button('Show in Debug').click()`)
+    assert.match(await b.run(`document.querySelector('.mcpi-dbg-row.is-hit').textContent`), /POST \S*nocors-as\/token.*No answer/)
+    await noSecrets(['code-1'])
   })
 
   await t.test('a registry link opens that server, and the share box offers the same link and the AI button', async () => {
@@ -287,6 +382,60 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     /* Mounted again on the same element, it starts fresh. */
     await b.run(`window.inst = MCPI.mount(document.querySelector('#x'), { registry: null, servers: [{ key: 'local', name: 'Local', url: ${JSON.stringify(mcp.base + '/mcp')} }], syncUrl: false, openFirst: false }); true`)
     assert.equal(await b.run(`document.querySelectorAll('#x .mcpi-server').length >= 1 && document.querySelector('.mcpi-main').hidden`), true)
+    await b.run(`inst.destroy(); true`)
+  })
+
+  await t.test('one server is always open: the first well-known one on arrival, the next one after removing it', async () => {
+    await b.go(origin + '/lib.html')
+    await b.run(HELPERS)
+    const featured = { servers: [{ id: 'io.test/local', name: 'Featured local', url: mcp.base + '/mcp', open: true }] }
+    await b.run(`window.inst = MCPI.mount(document.querySelector('#x'), { registry: '/registry/v0/servers', featured: ${JSON.stringify(featured)}, servers: [{ key: 'pinned', name: 'Pinned', url: ${JSON.stringify(mcp.base + '/from-registry')} }], syncUrl: false }); true`)
+    await b.until(`!document.querySelector('.mcpi-main').hidden`, 4000)
+    assert.equal(await b.run(`document.querySelector('.mcpi-id h2').textContent`), 'Featured local', 'the first well-known server, not a saved one')
+    assert.equal(await b.run(`!!document.querySelector('.mcpi-reg-list .mcpi-main')`), true, 'under its card in the list')
+    assert.equal(await b.run(`scrollY`), 0, 'quietly: the page does not scroll')
+    await b.until(`$t.status() === 'Connected'`)
+    /* Removed: the next saved server opens instead of leaving nothing. */
+    await b.run(`[...document.querySelectorAll('.mcpi-card-wrap')].find((w) => w.querySelector('.mcpi-server')?.dataset.key === ${JSON.stringify(mcp.base + '/mcp')}).querySelector('.mcpi-remove').click()`)
+    await b.until(`document.querySelector('.mcpi-id h2').textContent === 'Pinned'`, 4000)
+    assert.equal(await b.run(`document.querySelector('.mcpi-main').hidden`), false)
+    await b.run(`inst.destroy(); true`)
+    /* A link to a registry name that is not there says so, and still leaves a server open. */
+    await b.go(origin + '/lib.html?r=io.test/nothing')
+    await b.run(HELPERS)
+    await b.run(`window.inst = MCPI.mount(document.querySelector('#x'), { registry: '/registry/v0/servers', featured: ${JSON.stringify(featured)}, servers: [], syncUrl: false }); true`)
+    await b.until(`document.querySelector('.mcpi-notice') && !document.querySelector('.mcpi-main').hidden`, 4000)
+    assert.equal(await b.run(`document.querySelector('.mcpi-id h2').textContent`), 'Featured local')
+    await b.run(`[...document.querySelectorAll('.mcpi-card-wrap')].find((w) => w.querySelector('.mcpi-server')?.dataset.key === ${JSON.stringify(mcp.base + '/mcp')}).querySelector('.mcpi-remove').click(); inst.destroy(); true`)
+  })
+
+  await t.test('a tool marked destructive runs on the second press', async () => {
+    await open('?s=local')
+    await b.until(`$t.status() === 'Connected'`)
+    await b.run(`$t.pick('wipe'); $t.run()`)
+    assert.match(await b.run(`document.querySelector('.mcpi-item .mcpi-run').textContent`), /Press again to run/)
+    assert.equal(await b.run(`document.querySelector('.mcpi-item .mcpi-out')?.textContent.includes('wiped') || false`), false, 'not run yet')
+    await b.run(`document.querySelector('.mcpi-item .mcpi-run').click()`)
+    await b.until(`document.querySelector('.mcpi-item').textContent.includes('wiped')`, 4000)
+    assert.equal(await b.run(`document.querySelector('.mcpi-item .mcpi-run').textContent`), 'Run')
+  })
+
+  await t.test('a link to an address on this computer waits for a press before the page calls it', async () => {
+    const target = mcp.base + '/held'
+    await b.go(origin + '/lib.html?u=' + target)
+    await b.run(HELPERS)
+    await b.run(`window.inst = MCPI.mount(document.querySelector('#x'), { registry: null, servers: [], holdPrivate: true }); true`)
+    await b.until(`document.querySelector('.mcpi-hold')`, 4000)
+    assert.match(await b.run(`document.querySelector('.mcpi-hold').textContent`), /It was not connected/)
+    assert.equal(await b.run(`$t.status()`), 'Not connected')
+    await b.run(`document.querySelector('.mcpi-hold button').click()`)
+    await b.until(`$t.status() === 'Connected'`)
+    assert.equal(await b.run(`!!document.querySelector('.mcpi-hold')`), false)
+    /* Now it is one of the person's own servers: the same link connects by itself. */
+    await b.run(`inst.destroy(); true`)
+    await b.run(`window.inst = MCPI.mount(document.querySelector('#x'), { registry: null, servers: [], holdPrivate: true }); true`)
+    await b.until(`$t.status() === 'Connected'`)
+    await b.run(`[...document.querySelectorAll('.mcpi-card-wrap')].find((w) => w.querySelector('.mcpi-server')?.dataset.key.endsWith('/held')).querySelector('.mcpi-remove').click(); inst.destroy(); true`)
   })
 
   await t.test('every card has a link button that copies its link, and an AI button, and neither opens it', async () => {

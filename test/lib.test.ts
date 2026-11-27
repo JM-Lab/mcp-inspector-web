@@ -218,8 +218,35 @@ test('OAuth round trip values live in localStorage, so another tab can finish it
   assert.equal(auth.takePending(), null, 'used once')
   pv.redirectToAuthorization('https://s.example/authorize')
   assert.equal(auth.takePending(Date.now() + PENDING_MAX_MS + 1), null, 'too old')
+  /* The authorization server found before leaving is there on return (another tab too), and goes with the verifier. */
+  pv.saveDiscoveryState({ authorizationServerUrl: 'https://as.example' })
+  assert.equal(auth.provider(server).discoveryState().authorizationServerUrl, 'https://as.example')
+  auth.startSignIn(server)
+  assert.equal(pv.discoveryState(), undefined, 'a new sign-in looks it up again')
+  pv.saveDiscoveryState({ authorizationServerUrl: 'https://as.example' })
   auth.clearVerifier(server)
   assert.equal(pv.codeVerifier(), '')
+  assert.equal(pv.discoveryState(), undefined)
+})
+
+test('OAuth leaves the page only when the page allows it (a button press), and says where it goes first', () => {
+  const store = () => { const m = new Map(); return { m, getItem: (k: string) => (m.has(k) ? m.get(k) : null), setItem: (k: string, v: string) => m.set(k, v), removeItem: (k: string) => m.delete(k) } }
+  const local = store()
+  let went = ''
+  let allowed = false
+  const told: string[] = []
+  const page = { origin: 'https://a.example', pathname: '/', assign: (u: string) => { went = u } }
+  const auth = oauthStore({ prefix: 'p', oauth: {}, local, session: store(), page, allowRedirect: () => allowed, onRedirect: (_s: unknown, u: string, leaving: boolean) => { told.push(leaving + ' ' + u) } })
+  const pv = auth.provider({ key: 'k', name: 'S', url: 'https://s.example/mcp' })
+  /* The SDK asking by itself (a refused code, an expired token): nothing happens. */
+  pv.redirectToAuthorization('https://s.example/authorize')
+  assert.equal(went, '')
+  assert.equal(local.m.has('p:oauth'), false)
+  assert.deepEqual(told, ['false https://s.example/authorize'], 'told that it was held')
+  allowed = true
+  pv.redirectToAuthorization('https://s.example/authorize')
+  assert.equal(went, 'https://s.example/authorize')
+  assert.deepEqual(told, ['false https://s.example/authorize', 'true https://s.example/authorize'])
 })
 
 test('partsOf: tool content, resource contents, prompt messages', () => {

@@ -34,6 +34,10 @@
       "types": "./src/add-to-ai.d.ts",
       "default": "./src/add-to-ai.js"
     },
+    "./debug": {
+      "types": "./src/debug.d.ts",
+      "default": "./src/debug.js"
+    },
     "./lib": {
       "types": "./src/lib.d.ts",
       "default": "./src/lib.js"
@@ -63,7 +67,7 @@
     "demo": "node scripts/build.js && node scripts/serve.js",
     "featured": "node scripts/featured.js --out demo/featured.json",
     "test": "node --test test/*.test.ts",
-    "typecheck": "npx -y -p typescript@5 tsc --noEmit --strict --skipLibCheck src/index.d.ts src/add-to-ai.d.ts src/lib.d.ts",
+    "typecheck": "npx -y -p typescript@5 tsc --noEmit --strict --skipLibCheck src/index.d.ts src/add-to-ai.d.ts src/lib.d.ts src/debug.d.ts",
     "prepublishOnly": "npm test && npm run typecheck && npm run build",
     "prepare": "npm run build",
     "version": "node scripts/version.js && git add src/conn.js",

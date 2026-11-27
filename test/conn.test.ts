@@ -21,6 +21,7 @@ function memoryProvider(redirectUrl: string) {
     clientInformation: () => mem.client, saveClientInformation: (v: unknown) => { mem.client = v },
     tokens: () => mem.tokens, saveTokens: (v: unknown) => { mem.tokens = v },
     saveCodeVerifier: (v: unknown) => { mem.verifier = v }, codeVerifier: () => (mem.verifier as string) || '',
+    saveDiscoveryState: (v: unknown) => { mem.discovery = v }, discoveryState: () => mem.discovery,
     redirectToAuthorization(url: URL) { this.went = String(url) },
     mem,
   }
@@ -194,4 +195,15 @@ test('an unknown method is refused, not sent as a ping', async () => {
   const c = new Conn({ key: 'k', name: 'local', url: 'http://localhost:1/mcp' }, {})
   c.client = {} as never
   await assert.rejects(c.send('tools/lsit', {}), /Unknown method: tools\/lsit/)
+})
+
+test('Conn: a header token goes to the MCP server only, never with the OAuth requests', async () => {
+  const p = memoryProvider('http://app.example/')
+  const c = new Conn({ key: 'k', url: base + '/oauth-mcp', headers: { 'X-Test-Key': 'header-secret' } }, { authProvider: () => p })
+  await c.connect({ oauth: true }).catch(() => {})
+  c.close()
+  const sent = c.trace.events.filter((e: { type: string }) => e.type === 'http').map((e: { kind: string; reqHeaders: Record<string, string> }) => [e.kind, 'x-test-key' in e.reqHeaders])
+  assert.deepEqual(sent.filter(([k]: [string]) => k === 'mcp').map(([, has]: [string, boolean]) => has), [true], 'the MCP server gets it')
+  for (const [k, has] of sent) if (k !== 'mcp') assert.equal(has, false, k + ' request has no header token')
+  assert.ok(sent.some(([k]: [string]) => k === 'register'), 'the OAuth requests did run')
 })

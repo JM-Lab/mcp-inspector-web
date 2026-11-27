@@ -8,9 +8,11 @@
  *   hooks.hasTokens(server)      whether OAuth tokens are already stored
  *   hooks.explain(error, oauth)  the error sentence shown to a person
  *   hooks.clientInfo             { name, version } sent in initialize
+ * Every HTTP request and JSON-RPC message also goes into conn.trace (trace.js), which the debugger draws.
  */
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { isAuthError, isNetError } from './lib.js'
+import { createTrace } from './trace.js'
 
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
 
@@ -21,11 +23,13 @@ export function tap(transport, c) {
     for (const m of [].concat(msg)) {
       c.log.unshift({ method: m.method || 'response', dir: 'out', id: m.id, request: m, at: new Date(), t0: now(), ms: null, response: null, error: null })
     }
+    c.trace.sent(msg)
     c.hooks.onLog(c)
     return send(msg, opts)
   }
   let handler = null
   const wrapped = (msg, extra) => {
+    c.trace.received(msg)
     const hit = msg.id != null && msg.method == null ? c.log.find((e) => e.dir === 'out' && e.id === msg.id && e.response == null) : null
     if (hit) { hit.response = msg; hit.ms = Math.round(now() - hit.t0) }
     else { c.log.unshift({ method: msg.method || 'message', dir: 'in', request: msg, at: new Date(), ms: null, response: null, error: null }); c.unseen++ }
@@ -33,6 +37,25 @@ export function tap(transport, c) {
     if (handler) handler(msg, extra)
   }
   Object.defineProperty(transport, 'onmessage', { configurable: true, get: () => (handler ? wrapped : undefined), set: (fn) => { handler = fn } })
+}
+
+/*
+ * A header token (server.headers) goes to the MCP server's own address and nowhere else. Given to the SDK as requestInit,
+ * it would also go with the OAuth requests (metadata, registration, token), to an authorization server that may be another site.
+ * A header the request already has (the SDK's own Authorization from OAuth, say) is kept.
+ */
+const endpoint = (url) => { try { const u = new URL(String(url)); return u.origin + u.pathname.replace(/\/$/, '') } catch (e) { return String(url) } }
+function withHeaders(fetchFn, serverUrl, headersOf) {
+  const target = endpoint(serverUrl)
+  return (input, init = {}) => {
+    const extra = Object.entries(headersOf() || {})
+    const url = typeof input === 'string' ? input : input && input.url ? input.url : String(input)
+    if (!extra.length || endpoint(url) !== target) return fetchFn(input, init)
+    const headers = new Headers(input && typeof input === 'object' && input.headers ? input.headers : undefined)
+    new Headers(init && init.headers).forEach((v, k) => headers.set(k, v))
+    for (const [k, v] of extra) if (!headers.has(k)) headers.set(k, v)
+    return fetchFn(input, Object.assign({}, init, { headers }))
+  }
 }
 
 /** Sent in initialize. `npm version` keeps the version in step with package.json (scripts/version.js). */
@@ -51,9 +74,11 @@ export class Conn {
     this.needAuth = false
     this.subs = new Set()
     this.unseen = 0
+    this.trace = createTrace({ url: server.url })
   }
   transport(oauth) {
-    const opts = { requestInit: { headers: this.server.headers || {} } }
+    /* The traced fetch sees every request: the MCP server's own, and the OAuth ones (metadata, registration, token). */
+    const opts = { fetch: withHeaders(this.trace.fetch, this.server.url, () => this.server.headers) }
     if (oauth && this.hooks.authProvider) opts.authProvider = this.hooks.authProvider(this.server)
     return new StreamableHTTPClientTransport(new URL(this.server.url), opts)
   }
@@ -82,6 +107,8 @@ export class Conn {
     this.error = ''
     this.needAuth = false
     const oauth = !!(opts && opts.oauth)
+    /* A new run of the trace. A sign-in started by the button (not the return from it) marks where its OAuth flow begins. */
+    this.trace.begin({ signIn: oauth && !(opts && opts.callback), resume: !!(opts && opts.callback) })
     try {
       if (this.client) await this.client.close().catch(() => {})
       this.subs.clear()

@@ -1,7 +1,7 @@
 /*
  * Scenario: one public MCP server that opens with no auth, in the order a person uses it.
  * The target is Microsoft Learn MCP (com.microsoft/microsoft-learn-mcp in the official MCP Registry), which allows CORS with no auth.
- * Order: find it in the registry, make a card, connect, list tools, run a tool, ping, read History, disconnect.
+ * Order: find it in the registry, make a card, connect, list tools, run a tool, ping, read the message log (Debug), disconnect.
  * Needs the network. When the registry or the server cannot be reached at all the test is skipped (someone else's outage
  * should not block a release). When it is reached and a step breaks, it fails. `MCPI_SCENARIO=0` turns it off.
  */
@@ -55,9 +55,9 @@ test('scenario: find a public server in the registry, connect, run a tool and re
   /* 4. Ping. */
   await c.send('ping')
 
-  /* 5. History: every request has its response. */
+  /* 5. The message log (the Debug tab draws it): every request has its response. */
   const methods = c.log.filter((e: { dir: string }) => e.dir === 'out').map((e: { method: string }) => e.method)
-  for (const m of ['initialize', 'tools/list', 'tools/call', 'ping']) assert.ok(methods.includes(m), 'missing from History: ' + m)
+  for (const m of ['initialize', 'tools/list', 'tools/call', 'ping']) assert.ok(methods.includes(m), 'missing from the log: ' + m)
   const call = c.log.find((e: { method: string }) => e.method === 'tools/call')
   assert.ok(call.response && call.ms != null, 'tools/call keeps its response and timing')
 

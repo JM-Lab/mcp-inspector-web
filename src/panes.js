@@ -1,6 +1,6 @@
 /*
- * What the right side shows for one item: a tool, a prompt, a resource or template, or the History log.
- *   panes(ctx) → { tools(tool), prompts(prompt), resources(resource), history() }
+ * What the right side shows for one item: a tool, a prompt, a resource or template. (The Debug tab is debug.js.)
+ *   panes(ctx) → { tools(tool), prompts(prompt), resources(resource) }
  * The first three return { pane }. ctx is the page's view of the open server:
  *   ctx.cfg, ctx.ui                 options and strings
  *   ctx.current()                   the open server
@@ -158,17 +158,5 @@ export function panes(ctx) {
     }
   }
 
-  function history() {
-    const c = ctx.conn()
-    if (!c.log.length) return h('p', { class: 'mcpi-empty', text: ui.historyEmpty })
-    return h('div', { class: 'mcpi-history' }, c.log.map((e) => {
-      const bad = e.error || (e.response && e.response.error)
-      return h('details', { class: bad ? 'is-err' : null },
-        h('summary', null, h('i', { text: e.dir === 'in' ? '←' : '→' }), h('code', { text: e.method }), h('span', { text: e.at.toLocaleTimeString() }), h('span', { text: e.ms != null ? e.ms + ' ms' : '' })),
-        h('pre', { text: JSON.stringify(e.request, null, 2) }),
-        e.response ? h('pre', { text: JSON.stringify(e.response, null, 2) }) : null)
-    }))
-  }
-
-  return { tools, prompts, resources, history }
+  return { tools, prompts, resources }
 }

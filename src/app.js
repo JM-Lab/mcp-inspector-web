@@ -13,6 +13,7 @@
  *   output.js    the answer box            panes.js     tool, prompt, resource and History panes
  *   cards.js     server cards              registry.js  the MCP Registry panel
  *   share.js     links into the page        add-to-ai.js     add a server to an AI client (stands alone)
+ *   trace.js     what a connection did      debug.js     draws it: the Debug tab and the failure notice (stands alone)
  *
  *   mount(root, options)   see README.md for every option; returns { destroy() }
  */
@@ -26,9 +27,11 @@ import { cardOf, shareBox } from './cards.js'
 import { registryPanel } from './registry.js'
 import { linkOf, readLink, registryEntry, mergeQuery, handoffStore } from './share.js'
 import { openAddToAi } from './add-to-ai.js'
+import { debugView, debugNotice, tripStore, judge } from './debug.js'
 import { CAP, REGISTRY, STORE_PREFIX, hostOf, cleanUrl, isPrivateAddress, pushFront, filled, loadStore, saveStore, explainError, registryCard, isActive } from './lib.js'
 
-const TABS = [['tools', 'Tools'], ['prompts', 'Prompts'], ['resources', 'Resources'], ['history', 'History']]
+/* The last tab is the debugger: every HTTP request and JSON-RPC message, and the OAuth flow. Its key stays 'history'. */
+const TABS = [['tools', 'Tools'], ['prompts', 'Prompts'], ['resources', 'Resources'], ['history', 'Debug']]
 const LEVELS = ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency']
 
 export function mount(root, options) {
@@ -38,7 +41,17 @@ export function mount(root, options) {
   root.classList.add('mcpi')
 
   const explain = (e, oauth) => explainError(e, oauth, ui)
-  const auth = oauthStore({ prefix: P, oauth: cfg.oauth, local: localStorage, session: sessionStorage, page: location })
+  /* The sign-in recorded so far goes into storage as the page leaves for the authorization page, and is read back on return (secrets already hidden). */
+  const trip = tripStore(localStorage, P)
+  const onRedirect = (server, url, leaving) => {
+    const c = conns[server.key]
+    if (!c) return
+    c.trace.redirect(url, { held: !leaving })
+    if (leaving) trip.save(server.url, c.trace.export())
+  }
+  /* Servers whose sign-in button was just pressed: only their connect may leave for the authorization page. */
+  const pressedSignIn = new Set()
+  const auth = oauthStore({ prefix: P, oauth: cfg.oauth, local: localStorage, session: sessionStorage, page: location, onRedirect, allowRedirect: (server) => pressedSignIn.has(server.key) && current === server })
   const setQuery = (q) => { try { history.replaceState(null, '', location.pathname + mergeQuery(location.search, q)) } catch (e) { /* ignore */ } }
 
   /* Servers: pinned (options.servers) + added by address (mine) + recently viewed (recent). The last two keep CAP each in this browser. */
@@ -53,6 +66,14 @@ export function mount(root, options) {
   }
   const newConn = (server) => new Conn(server, hooks)
   const conns = {}
+  /* Per connection: its debugger view (the Debug tab) and its failure notice (under the server's name). Made when first shown. */
+  const views = {}
+  const notices = {}
+  const viewOf = (c) => views[c.server.key] || (views[c.server.key] = debugView(c.trace, { lang: cfg.lang, ui: cfg.debugUi, url: c.server.url }))
+  const noticeOf = (c) => notices[c.server.key] || (notices[c.server.key] = debugNotice(c.trace, {
+    lang: cfg.lang, ui: cfg.debugUi, active: () => c.state === 'failed', fallback: () => c.error,
+    onShow: (seq) => { if (!current || conns[current.key] !== c) return; selectTab('history'); viewOf(c).show(seq) },
+  }))
   const data = {}
   let current = null
   let tab = 'tools'
@@ -72,6 +93,7 @@ export function mount(root, options) {
     select: h('select', { class: 'mcpi-select', 'aria-label': 'Items' }),
     pane: h('section', { class: 'mcpi-pane' }),
     asks: h('div', { class: 'mcpi-asks' }),
+    alert: h('div', { class: 'mcpi-alert' }),
     auth: h('div', { class: 'mcpi-auth', hidden: true }),
     share: h('details', { class: 'mcpi-share' }),
     level: h('select', { class: 'mcpi-level', 'aria-label': 'Logging level', hidden: true }, LEVELS.map((v) => h('option', { value: v, text: 'log: ' + v, selected: v === 'info' }))),
@@ -84,7 +106,7 @@ export function mount(root, options) {
 
   function logChanged(c) {
     if (!current || conns[current.key] !== c) return
-    if (tab === 'history') { c.unseen = 0; el.pane.replaceChildren(pane.history()) }
+    if (tab === 'history') { c.unseen = 0; showDebug(c) }
     else if (el.tabs.firstChild) renderTabs()
   }
 
@@ -124,10 +146,23 @@ export function mount(root, options) {
   }
   const nameOf = (x) => x.name || x.uri || x.uriTemplate
 
+  /* The Debug tab says when the connection failed (a red !), else how many messages came in unasked. */
+  function debugMark() {
+    const c = conn()
+    if (!c) return null
+    if (c.state === 'failed') return h('i', { class: 'is-bad', text: '!', title: c.error })
+    return c.unseen ? h('i', { class: 'is-new', text: c.unseen }) : null
+  }
   function renderTabs() {
     el.tabs.replaceChildren(...TABS.map(([k, label]) => h('button', {
       type: 'button', class: 'mcpi-tab' + (k === tab ? ' is-on' : ''), role: 'tab', 'aria-selected': k === tab ? 'true' : 'false', onclick: () => selectTab(k),
-    }, label, k === 'history' ? (conn() && conn().unseen ? h('i', { class: 'is-new', text: conn().unseen }) : null) : h('i', { text: itemsOf(k).length }))))
+    }, label, k === 'history' ? debugMark() : h('i', { text: itemsOf(k).length }))))
+  }
+
+  /* The view keeps itself current, so it is only put in place, not drawn again on each message. */
+  function showDebug(c) {
+    const v = viewOf(c)
+    if (el.pane.firstChild !== v.el || el.pane.childNodes.length !== 1) el.pane.replaceChildren(v.el)
   }
 
   function selectTab(key, keep) {
@@ -135,14 +170,15 @@ export function mount(root, options) {
     renderTabs()
     const body = el.pane.parentNode
     body.classList.toggle('is-wide', key === 'history')
-    if (key === 'history') { conn().unseen = 0; renderTabs(); el.list.replaceChildren(); el.select.replaceChildren(); el.pane.replaceChildren(pane.history()); return }
+    if (key === 'history') { conn().unseen = 0; renderTabs(); el.list.replaceChildren(); el.select.replaceChildren(); showDebug(conn()); return }
     const all = itemsOf(key)
     if (!all.length) {
       body.classList.add('is-wide')
       el.list.replaceChildren()
       el.select.replaceChildren()
       const c = conn()
-      el.pane.replaceChildren(h('p', { class: 'mcpi-empty' + (c.state === 'failed' ? ' is-err' : ''), text: c.state === 'failed' ? c.error : c.state === 'connecting' ? ui.connecting : ui.empty }))
+      /* A failure is said once, in the notice under the server's name. */
+      el.pane.replaceChildren(h('p', { class: 'mcpi-empty', text: c.state === 'connecting' ? ui.connecting : ui.empty }))
       return
     }
     const wanted = keep != null ? all.findIndex((x) => nameOf(x) === keep) : -1
@@ -187,7 +223,12 @@ export function mount(root, options) {
     const named = current.authHeader || current.hint
     el.auth.hidden = !(current.custom && (wants || c.state === 'failed' || current.headers || named))
     signIn.hidden = !wants
-    authNote.textContent = c.state !== 'failed' ? '' : c.needAuth ? ui.failAuth : wants ? c.error : ''
+    /* What to do next stays by the sign-in controls. What failed and where is the notice above, with its way into Debug. */
+    authNote.textContent = c.state === 'failed' && c.needAuth ? ui.failAuth : ''
+    const notice = noticeOf(c)
+    notice.refresh()
+    if (el.alert.firstChild !== notice.el) el.alert.replaceChildren(notice.el)
+    if (el.tabs.firstChild) renderTabs()
     if (document.activeElement !== tName && document.activeElement !== tValue) {
       const hd = Object.entries(current.headers || {})[0]
       tName.value = hd ? hd[0] : named || 'Authorization'
@@ -263,7 +304,10 @@ export function mount(root, options) {
   /* Reconnects the open server, with options (OAuth, a callback), and redraws what it shows. */
   async function reopen(s, opts) {
     conn().close()
-    try { await connect(s, true, opts) } catch (e) { /* shown in head */ }
+    const press = !!(opts && opts.oauth && !opts.callback)
+    /* A sign-in starts afresh: nothing kept from one that never came back. */
+    if (press) { pressedSignIn.add(s.key); auth.startSignIn(s); trip.drop(s.url) }
+    try { await connect(s, true, opts) } catch (e) { /* shown in head */ } finally { if (press) pressedSignIn.delete(s.key) }
     if (current === s) { renderHead(); selectTab(tab, el.pane.dataset.item) }
   }
 
@@ -332,8 +376,11 @@ export function mount(root, options) {
 
   function forget(s) {
     if (conns[s.key]) conns[s.key].close()
+    for (const x of [views[s.key], notices[s.key]]) if (x) x.destroy()
     delete conns[s.key]
     delete data[s.key]
+    delete views[s.key]
+    delete notices[s.key]
   }
 
   function remove(s) {
@@ -345,6 +392,8 @@ export function mount(root, options) {
     }
     const none = !current
     forget(s)
+    trip.drop(s.url)
+    auth.clearVerifier(s)
     servers = servers.filter((x) => x !== s)
     save()
     renderServers()
@@ -365,7 +414,7 @@ export function mount(root, options) {
     const others = servers.filter((x) => x !== obj)
     const same = others.filter((x) => x.kind === kind)
     const kept = pushFront(same, obj, CAP)
-    for (const x of same) if (!kept.includes(x)) forget(x)
+    for (const x of same) if (!kept.includes(x)) { forget(x); trip.drop(x.url); auth.clearVerifier(x) }
     const by = (k) => (k === kind ? kept : others.filter((x) => x.kind === k))
     servers = others.filter((x) => !x.custom).concat(by('mine'), by('recent'))
     if (current && !servers.includes(current)) { current = null; main.hidden = true }
@@ -452,7 +501,7 @@ export function mount(root, options) {
     h('div', { class: 'mcpi-top' },
       h('div', { class: 'mcpi-id' }, el.name, el.url),
       h('div', { class: 'mcpi-top-actions' }, el.status, el.level, ping, reconnect)),
-    el.info, el.auth, el.share, el.instr, el.asks, el.tabs,
+    el.alert, el.info, el.auth, el.share, el.instr, el.asks, el.tabs,
     h('div', { class: 'mcpi-body' }, el.list, el.select, el.pane))
   root.replaceChildren(el.servers, main, ...(registry ? [registry.el] : []))
   renderServers()
@@ -466,6 +515,9 @@ export function mount(root, options) {
     handoff.restore()
     current = s
     conns[s.key] = conns[s.key] || newConn(s)
+    /* The sign-in recorded before leaving, then what came back (a code or an error, both hidden). */
+    conns[s.key].trace.restore(trip.take(s.url))
+    conns[s.key].trace.returned(q)
     s.wantsAuth = true
     setQuery(linkOf(s))
     renderHead()
@@ -536,6 +588,7 @@ export function mount(root, options) {
   /* Takes the inspector off the page: closes every connection and empties root (servers kept in this browser stay). */
   return {
     destroy() {
+      pressedSignIn.clear()
       for (const key of Object.keys(conns)) forget({ key })
       current = null
       window.removeEventListener('resize', onResize)

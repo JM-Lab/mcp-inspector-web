@@ -37,6 +37,8 @@ function makeServer() {
 /*
  * A small authorization server (metadata, dynamic registration, authorize, token; PKCE S256 is really checked).
  * `/oauth-mcp` answers 401 with the protected resource metadata address when there is no token. `/nodcr-mcp` has no dynamic registration.
+ * Two more that fail on purpose, for the debugger: `/badtoken-mcp` hands back a code its token endpoint refuses (invalid_grant),
+ * and `/nocors-mcp` has a token endpoint that does not allow browser requests (no CORS headers).
  */
 function oauthRoutes(base: () => string, oauth: { challenge: string, redirect: string, registered: number, tokenCalls: number }) {
   return async (req: http.IncomingMessage, res: http.ServerResponse) => {
@@ -44,31 +46,32 @@ function oauthRoutes(base: () => string, oauth: { challenge: string, redirect: s
   const url = new URL(req.url!, base_)
   const json = (code: number, body: unknown, headers: Record<string, string> = {}) => { res.writeHead(code, { 'content-type': 'application/json', ...headers }); res.end(JSON.stringify(body)) }
   const body = async () => { const chunks: Buffer[] = []; for await (const c of req) chunks.push(c as Buffer); return Buffer.concat(chunks).toString() }
-  const which = url.pathname.includes('nodcr') ? 'nodcr' : 'oauth'
+  const which = (['nodcr', 'badtoken', 'nocors'].find((w) => url.pathname.includes(w + '-')) || 'oauth')
   if (url.pathname.startsWith('/.well-known/oauth-protected-resource')) { json(200, { resource: base_ + '/' + which + '-mcp', authorization_servers: [base_ + '/' + which + '-as'] }); return true }
   if (url.pathname.startsWith('/.well-known/oauth-authorization-server') || url.pathname.endsWith('/.well-known/openid-configuration') || url.pathname.startsWith('/.well-known/openid-configuration')) {
     const as = base_ + '/' + which + '-as'
-    json(200, { issuer: as, authorization_endpoint: as + '/authorize', token_endpoint: as + '/token', ...(which === 'oauth' ? { registration_endpoint: as + '/register' } : {}), response_types_supported: ['code'], grant_types_supported: ['authorization_code', 'refresh_token'], code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['none'] })
+    json(200, { issuer: as, authorization_endpoint: as + '/authorize', token_endpoint: as + '/token', ...(which !== 'nodcr' ? { registration_endpoint: as + '/register' } : {}), response_types_supported: ['code'], grant_types_supported: ['authorization_code', 'refresh_token'], code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['none'] })
     return true
   }
-  if (url.pathname === '/oauth-as/register') { oauth.registered++; json(201, { ...JSON.parse(await body()), client_id: 'client-1' }); return true }
-  if (url.pathname === '/oauth-as/authorize') {
+  if (url.pathname === '/' + which + '-as/register' && which !== 'nodcr') { oauth.registered++; json(201, { ...JSON.parse(await body()), client_id: 'client-1' }); return true }
+  if (url.pathname === '/' + which + '-as/authorize') {
     oauth.challenge = url.searchParams.get('code_challenge') || ''
     oauth.redirect = url.searchParams.get('redirect_uri') || ''
     const back = new URL(oauth.redirect)
-    back.searchParams.set('code', 'code-1')
+    back.searchParams.set('code', which === 'badtoken' ? 'code-bad' : 'code-1')
     if (url.searchParams.get('state')) back.searchParams.set('state', url.searchParams.get('state')!)
     res.writeHead(302, { location: back.href }); res.end(); return true
   }
-  if (url.pathname === '/oauth-as/token') {
+  if (url.pathname === '/' + which + '-as/token') {
     oauth.tokenCalls++
+    if (which === 'nocors') for (const k of Object.keys(CORS)) res.removeHeader(k)
     const form = new URLSearchParams(await body())
     const { createHash } = await import('node:crypto')
     const ok = form.get('code') === 'code-1' && createHash('sha256').update(form.get('code_verifier') || '').digest('base64url') === oauth.challenge && form.get('redirect_uri') === oauth.redirect
     if (!ok) { json(400, { error: 'invalid_grant' }); return true }
     json(200, { access_token: 'good-token', token_type: 'Bearer', expires_in: 3600 }); return true
   }
-  if ((url.pathname === '/oauth-mcp' || url.pathname === '/nodcr-mcp') && req.headers.authorization !== 'Bearer good-token') {
+  if (/^\/(oauth|nodcr|badtoken|nocors)-mcp$/.test(url.pathname) && req.headers.authorization !== 'Bearer good-token') {
     json(401, {}, { 'www-authenticate': `Bearer resource_metadata="${base_}/.well-known/oauth-protected-resource/${which}-mcp"` }); return true
   }
   return false

@@ -83,14 +83,11 @@
 .mcpi-role{margin:0;font-size:.66rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--mcpi-mute)}
 .mcpi-empty{margin:0;color:var(--mcpi-mute)}
 .mcpi-empty.is-err{color:var(--mcpi-accent2)}
-.mcpi-history details{border-bottom:1px solid var(--mcpi-rule)}
-.mcpi-history summary{cursor:pointer;min-height:40px;display:grid;grid-template-columns:1.2rem minmax(0,1fr) auto 4.2rem;gap:.5rem;align-items:center;font-size:.76rem;color:var(--mcpi-mute)}
-.mcpi-history summary code{color:var(--mcpi-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mcpi-history summary i{font-style:normal}
-.mcpi-history summary span:last-child{text-align:right}
-.mcpi-history .is-err summary code{color:var(--mcpi-accent2)}
-.mcpi-history pre{font-size:.72rem;line-height:1.5;padding:.6rem .7rem;margin:0 0 .6rem;background:var(--mcpi-tint);border-radius:6px;max-height:18rem;overflow:auto}
 .mcpi-tab i.is-new{background:var(--mcpi-accent);color:var(--mcpi-inv);opacity:1;border-radius:999px;padding:0 .4rem}
+.mcpi-tab i.is-bad{background:var(--mcpi-accent2);color:var(--mcpi-inv);opacity:1;border-radius:999px;padding:0 .4rem}
+/* The failure notice under the server's name (debug.js draws it). Empty, and so not there, while nothing failed. */
+.mcpi-alert{padding:0 1rem}
+.mcpi-alert:has(> [hidden]),.mcpi-alert:empty{display:none}
 .mcpi-actions{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
 .mcpi-actions .mcpi-btn{min-height:44px}
 .mcpi-btn[aria-pressed=true]{background:var(--mcpi-ink);color:var(--mcpi-inv)!important;border-color:var(--mcpi-ink)}

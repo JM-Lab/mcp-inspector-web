@@ -13,7 +13,7 @@ const declared = (file: string) => {
   return names
 }
 
-for (const [dts, js, extra] of [['lib.d.ts', 'lib.js', []], ['add-to-ai.d.ts', 'add-to-ai.js', []], ['index.d.ts', 'index.js', ['lib.js']]] as const) {
+for (const [dts, js, extra] of [['lib.d.ts', 'lib.js', []], ['add-to-ai.d.ts', 'add-to-ai.js', []], ['debug.d.ts', 'debug.js', []], ['index.d.ts', 'index.js', ['lib.js']]] as const) {
   test(`${dts} declares every export of ${js}, and nothing else`, async () => {
     const mod = await import('../src/' + js)
     const want = new Set(Object.keys(mod))

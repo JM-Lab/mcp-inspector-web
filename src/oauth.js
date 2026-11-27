@@ -1,14 +1,19 @@
 /*
  * OAuth sign-in. The redirect target is this page itself, so there is no separate callback page.
  * Tokens live in sessionStorage and go when the tab closes. The dynamically registered client and the values that
- * only matter during the round trip (which server, the PKCE verifier) live in localStorage: when sign-in ends in a new
+ * only matter during the round trip (which server, the PKCE verifier, the discovered authorization server) live in localStorage: when sign-in ends in a new
  * tab or window (a mail link, an SSO popup) the returning tab must still find them. They are removed on return.
  * The server's OAuth endpoints (metadata, registration, token) must allow browser requests (CORS).
  *
  * Storage and the page location are passed in, so the tests run this with stand-ins.
- *   oauthStore({ prefix, oauth, local, session, page })
+ *   oauthStore({ prefix, oauth, local, session, page, onRedirect })
  *     local, session   localStorage and sessionStorage
  *     page             location: origin, pathname and assign(url)
+ *     onRedirect       (server, url, leaving) just before the page leaves for the authorization page, or when it was not
+ *                      allowed to (leaving false); the debugger records it
+ *     allowRedirect    (server) → whether the page may leave now. Sign-in starts only from a button press, so the page says yes
+ *                      only during a connect the button started. The SDK also asks on its own (a refused code, an expired token):
+ *                      then nothing happens, the connect fails, and the button is there to press.
  */
 import { clientMetadataFor } from './lib.js'
 
@@ -19,7 +24,7 @@ const jget = (store, k) => { try { return JSON.parse(store.getItem(k)) || undefi
 const jset = (store, k, v) => { try { store.setItem(k, JSON.stringify(v)) } catch (e) { /* storage blocked */ } }
 const drop = (store, k) => { try { store.removeItem(k) } catch (e) { /* storage blocked */ } }
 
-export function oauthStore({ prefix, oauth, local, session, page }) {
+export function oauthStore({ prefix, oauth, local, session, page, onRedirect, allowRedirect }) {
   const cfg = Object.assign({ clientName: 'MCP Inspector Web', clientMetadataUrl: null }, oauth)
   const PENDING = prefix + ':oauth'
   const redirectUrl = page.origin + page.pathname
@@ -41,8 +46,19 @@ export function oauthStore({ prefix, oauth, local, session, page }) {
       saveTokens: (v) => jset(session, k('tokens'), v),
       saveCodeVerifier: (v) => jset(local, k('verifier'), v),
       codeVerifier: () => jget(local, k('verifier')) || jget(session, k('verifier')) || '',
+      /*
+       * The authorization server found before leaving. On return the SDK checks the code is exchanged with that same server
+       * (SEP-2352), and does not look it up again. It lives as long as the verifier.
+       */
+      saveDiscoveryState: (v) => jset(local, k('discovery'), v),
+      discoveryState: () => jget(local, k('discovery')),
       redirectToAuthorization(url) {
+        if (allowRedirect && !allowRedirect(server)) {
+          if (onRedirect) { try { onRedirect(server, url, false) } catch (e) { /* the debugger must not get in the way */ } }
+          return
+        }
         jset(local, PENDING, { url: server.url, name: server.name, key: server.key, at: Date.now() })
+        if (onRedirect) { try { onRedirect(server, url, true) } catch (e) { /* the debugger must not stop sign-in */ } }
         page.assign(String(url))
       },
     }
@@ -57,7 +73,9 @@ export function oauthStore({ prefix, oauth, local, session, page }) {
       drop(local, PENDING)
       return p && now - (p.at || 0) < PENDING_MAX_MS ? p : null
     },
-    /** The PKCE verifier only matters during one round trip. */
-    clearVerifier: (server) => drop(local, key('verifier', server)),
+    /** The PKCE verifier and the discovered authorization server only matter during one round trip. */
+    clearVerifier: (server) => { drop(local, key('verifier', server)); drop(local, key('discovery', server)) },
+    /** A sign-in starts afresh: the authorization server is looked up again, not taken from one that never came back. */
+    startSignIn: (server) => drop(local, key('discovery', server)),
   }
 }
