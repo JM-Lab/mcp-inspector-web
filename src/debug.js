@@ -23,12 +23,12 @@
  * Everything shown and copied comes from the trace, where secrets were already replaced. Copy leaves out JSON-RPC content
  * (tool arguments and results) unless "include message content" is ticked.
  */
-import { createTrace, judge, rowsOf, toLog, masked, maskedUrl, kindOf, tripStore, HIDE } from './trace.js'
+import { createTrace, judge, rowsOf, protocolOf, revisionLevel, toLog, masked, maskedUrl, kindOf, tripStore, HIDE, MODERN_REVISION, NEWEST_LEGACY_REVISION } from './trace.js'
 import { STRINGS } from './debug-strings.js'
 import { addStyle } from './debug-style.js'
 import { lineIcon } from './icons.js'
 
-export { createTrace, judge, rowsOf, toLog, masked, maskedUrl, kindOf, tripStore, HIDE, STRINGS }
+export { createTrace, judge, rowsOf, protocolOf, revisionLevel, toLog, masked, maskedUrl, kindOf, tripStore, HIDE, MODERN_REVISION, NEWEST_LEGACY_REVISION, STRINGS }
 
 function el(tag, attrs, ...kids) {
   const e = document.createElement(tag)
@@ -91,6 +91,7 @@ export function debugView(trace, opts = {}) {
   addStyle()
   const t = stringsOf(opts)
   const state = { filter: 'all', mode: 'list', messages: false, open: new Set(), hit: null }
+  const protoBox = el('p', { class: 'mcpi-dbg-proto', hidden: true })
   const flowBox = el('details', { class: 'mcpi-dbg-flow', hidden: true })
   const rows = el('div', { class: 'mcpi-dbg-rows' })
   const logPre = el('pre', { class: 'mcpi-dbg-log', hidden: true })
@@ -107,7 +108,7 @@ export function debugView(trace, opts = {}) {
     setTimeout(() => { copy.replaceChildren(lineIcon('copy', 16)); copy.classList.remove('is-done') }, 1500)
   })
   const bar = el('div', { class: 'mcpi-dbg-bar' }, filters, el('div', { class: 'mcpi-dbg-pills' }, modes, el('label', { class: 'mcpi-dbg-check' }, withMsg, t.withMessages), copy))
-  const root = el('div', { class: 'mcpi-dbg' }, flowBox, bar, note, rows, logPre)
+  const root = el('div', { class: 'mcpi-dbg' }, protoBox, flowBox, bar, note, rows, logPre)
   let flowOpen = null
   let flowSig = null
   /* Rows by event number, each with what it was drawn from: one that did not change is left in place, untouched. */
@@ -153,7 +154,7 @@ export function debugView(trace, opts = {}) {
 
   function detailOf(e, m, level) {
     const out = []
-    const hint = level === 'fail' || level === 'warn' ? stepHint(e, m) : ''
+    const hint = level === 'fail' || level === 'warn' || level === 'info' ? stepHint(e, m) : ''
     if (hint) out.push(el('p', { class: 'mcpi-dbg-hint is-' + level, text: hint }))
     if (e.type === 'http') {
       out.push(part(t.request, ['', e.method + ' ' + safe(e.url)], [t.headers, headerText(safe(e.reqHeaders))], [t.body, safe(e.request)]))
@@ -173,11 +174,36 @@ export function debugView(trace, opts = {}) {
     const flow = m.judged.flow
     if (flow) for (const st of flow.steps) if (st.hint && (st.at === e.seq || (st.status === 'warn' && st.events.includes(e.seq)))) return hintText(st.hint, t)
     if (m.judged.failure && m.judged.failure.seq === e.seq) return hintText(m.judged.failure.hint, t)
+    const p = protocolOf(m.events)
+    if (p.fellBack && p.probe && p.probe.seq === e.seq) return fill(t.hints.probe, { asked: p.probe.asked || MODERN_REVISION })
     if (e.type === 'http' && e.kind === 'mcp' && e.method === 'GET' && !e.ok) return hintText({ code: 'noStream', status: e.status || '' }, t)
     if (e.type === 'http' && e.status === 0) return hintText({ code: e.reach === 'cors' ? 'cors' : e.reach === 'unreachable' ? 'unreachable' : e.reach === 'mixed' ? 'mixed' : 'noAnswer', host: hostPath(e.url, '').split('/')[0] }, t)
     const rpcErr = e.type === 'rpc' ? e.message && e.message.error : (m.carried.get(e.seq) || []).map((x) => x.message && x.message.error).find(Boolean)
     if (rpcErr) return 'JSON-RPC ' + rpcErr.code + ' ' + rpcErr.message
     return ''
+  }
+
+  /*
+   * Which way the protocol is spoken on this connection, and how that was found: server/discover answered (2026-07-28),
+   * or it was not and initialize was used. An earlier or older revision is said as what it is, never as a failure.
+   */
+  let protoSig = null
+  function drawProtocol(m) {
+    const p = protocolOf(m.events)
+    const sig = JSON.stringify(p)
+    if (sig === protoSig) return
+    protoSig = sig
+    protoBox.hidden = !p.era
+    if (!p.era) return
+    const how = p.era === 'modern' ? t.protoModern : p.fellBack ? fill(t.protoFellBack, { asked: p.probe.asked || MODERN_REVISION, why: [p.probe.status, p.probe.error].filter((x) => x != null && x !== '').join(' ').replace(/[.。]\s*$/, '') || t.noAnswer }) : t.protoLegacy
+    const stands = p.level === 'info' ? t.protoInfo : p.level === 'warn' ? t.protoWarn : ''
+    protoBox.className = 'mcpi-dbg-proto' + (p.level ? ' is-' + p.level : '')
+    protoBox.dataset.era = p.era
+    protoBox.dataset.level = p.level || ''
+    protoBox.replaceChildren(
+      el('b', { text: fill(t.protocol, { v: p.version || '?' }) }),
+      el('span', { text: ' · ' + how + (stands ? ' ' + stands : '') }),
+      ...(p.fellBack && p.probe.seq != null ? [' ', el('button', { type: 'button', text: t.protoShowProbe, onclick: () => show(p.probe.seq) })] : []))
   }
 
   function drawFlow(m) {
@@ -215,6 +241,7 @@ export function debugView(trace, opts = {}) {
 
   function refresh() {
     const m = model()
+    drawProtocol(m)
     drawFlow(m)
     for (const b of root.querySelectorAll('.mcpi-dbg-pill')) b.setAttribute('aria-pressed', String(state[b.dataset.filter ? 'filter' : 'mode'] === (b.dataset.filter || b.dataset.mode)))
     note.hidden = !state.messages

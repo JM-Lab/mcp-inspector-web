@@ -8,11 +8,13 @@
  * Each file starts with this project's copyright and MIT notice.
  */
 import { build } from 'esbuild'
-import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+/* dist/ starts empty, so a file from an older build (a renamed bundle) never ships. */
+rmSync(join(root, 'dist'), { recursive: true, force: true })
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 /*
  * MIT asks that the copyright and license notice go with every copy. A bundle is often copied on its own (from a CDN),

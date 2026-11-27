@@ -10,7 +10,7 @@ import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { openChrome } from './chrome.js'
 
-const PAGE = process.env.PAGE || 'https://aljal.kr/tools/mcp-inspector'
+const PAGE = process.env.PAGE || 'https://aljal.kr/miw'
 const outDir = new URL('../docs/', import.meta.url)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const b = await openChrome({ width: 1200, height: 900, scale: 2 })
@@ -51,7 +51,7 @@ try {
   await sleep(200)
   await b.run(`(() => { const d = [...document.querySelectorAll('.mcpi-dbg-row')].find((x) => /tools\\/call/.test(x.textContent)); if (d) d.open = true })()`)
   await sleep(200)
-  await shot('history.png', clipOf(1000))
+  await shot('debug.png', clipOf(1000))
 
   /*
    * 5. The Add to AI popup: the one-click clients first, and under the client picked its command, where to check it,

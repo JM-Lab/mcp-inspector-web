@@ -74,6 +74,21 @@ export function rowsOf(events: TraceEvent[]): {
   level(e: TraceEvent): EventLevel
   keep(e: TraceEvent, filter?: 'all' | 'rpc' | 'http' | 'errors'): boolean
 }
+export const MODERN_REVISION: string
+export const NEWEST_LEGACY_REVISION: string
+export type RevisionLevel = 'current' | 'info' | 'warn'
+/** 'current' (2026-07-28 or later), 'info' (2025-11-25), 'warn' (older), or null. */
+export function revisionLevel(version: string | null | undefined): RevisionLevel | null
+/** What the last connection settled on, read from its messages. */
+export function protocolOf(events: TraceEvent[]): {
+  era: 'modern' | 'legacy' | null
+  version: string | null
+  level: RevisionLevel | null
+  /** The server/discover tried first, or null when the client did not probe. */
+  probe: { seq: number; ok: boolean; asked: string | null; status?: number; error?: string } | null
+  /** It probed, was not answered that way, and used initialize. */
+  fellBack: boolean
+}
 export function toLog(events: TraceEvent[], opts?: { messages?: boolean }): string
 export function masked<T>(value: T, names?: RegExp): T
 export function maskedUrl(url: string | URL): string

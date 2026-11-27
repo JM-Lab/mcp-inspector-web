@@ -4,7 +4,7 @@
   "description": "An MCP Inspector that runs entirely in the browser. Connect to a remote MCP server, run its tools, prompts and resources, and read every message.",
   "license": "MIT",
   "author": "Jemin Huh",
-  "homepage": "https://aljal.kr/tools/mcp-inspector",
+  "homepage": "https://aljal.kr/miw",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/JM-Lab/mcp-inspector-web.git"

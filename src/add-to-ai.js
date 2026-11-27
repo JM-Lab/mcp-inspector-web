@@ -113,6 +113,8 @@ export function watchOpen(missed, ms = 2500, win = typeof window !== 'undefined'
 
 /* Line icons in the text color, drawn the same way as the inspector's own (close, copy, and the check after copying). */
 const LINES = {
+  /* Add to AI: a spark (the usual sign for AI) with a small plus, the same as the inspector's. */
+  ai: ['M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z', 'M19 15v5', 'M16.5 17.5h5'],
   close: ['M6 6l12 12', 'M18 6L6 18'],
   copy: ['M9 9h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1z', 'M16 5V4a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h1'],
   check: ['M5 12.5l4.5 4.5L19 7.5'],
@@ -371,18 +373,22 @@ export function openAddToAi(server, opts = {}) {
   return dialog
 }
 
+/** The trigger's look: the spark icon and its words, like every action button. */
+const trigger = (text, attrs) => el('button', Object.assign({ type: 'button' }, attrs), lineIcon('ai', 15), el('span', { text }))
+
 /** A button that opens the popup for this server. */
 export function addToAiButton(server, opts = {}) {
   addStyle()
   const t = stringsOf(opts)
-  const b = el('button', { type: 'button', class: opts.class || 'mcpi-addto-trigger', text: opts.label || t.button, title: t.button })
+  const b = trigger(opts.label || t.button, { class: opts.class || 'mcpi-addto-trigger', title: t.button })
+  const say = (text) => { b.querySelector('span').textContent = text }
   b.addEventListener('click', async (e) => {
     e.stopPropagation()
     if (server.url) { openAddToAi(server, opts); return }
     /* Given by registry name alone: look it up on the first press. */
     b.disabled = true
-    b.textContent = t.loading
-    try { server = await withAddress(server, opts); b.disabled = false; b.textContent = opts.label || t.button; openAddToAi(server, opts) } catch (err) { b.textContent = err.inactive ? t.inactive : t.notFound }
+    say(t.loading)
+    try { server = await withAddress(server, opts); b.disabled = false; say(opts.label || t.button); openAddToAi(server, opts) } catch (err) { say(err.inactive ? t.inactive : t.notFound) }
   })
   return b
 }
@@ -410,7 +416,7 @@ export function defineAddToAi(tag = 'mcp-add-to-ai') {
       const t = stringsOf(opts)
       addStyle()
       this.dataset.state = 'loading'
-      this.replaceChildren(el('button', { type: 'button', class: 'mcpi-addto-trigger', disabled: true, text: t.loading }))
+      this.replaceChildren(trigger(t.loading, { class: 'mcpi-addto-trigger', disabled: true }))
       try {
         const found = await fromRegistry(given.id, opts)
         if (mine !== this.seq) return
@@ -419,7 +425,7 @@ export function defineAddToAi(tag = 'mcp-add-to-ai') {
       } catch (e) {
         if (mine !== this.seq) return
         this.dataset.state = 'missing'
-        this.replaceChildren(el('button', { type: 'button', class: 'mcpi-addto-trigger', disabled: true, text: e.inactive ? t.inactive : t.notFound, title: String(e.message || e) }))
+        this.replaceChildren(trigger(e.inactive ? t.inactive : t.notFound, { class: 'mcpi-addto-trigger', disabled: true, title: String(e.message || e) }))
       }
     }
   })

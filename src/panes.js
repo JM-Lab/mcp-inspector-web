@@ -9,7 +9,7 @@
  *   ctx.renderHead()                redraws the server heading (status, timings)
  *   ctx.explain(error)              the error sentence shown to a person
  */
-import { h } from './dom.js'
+import { h, iconButton, setLabel } from './dom.js'
 import { form } from './form.js'
 import { output } from './output.js'
 
@@ -23,7 +23,7 @@ export function panes(ctx) {
     out.busy()
     const c = ctx.conn()
     const ac = new AbortController()
-    const stop = h('button', { type: 'button', class: 'mcpi-btn', text: 'Cancel', onclick: () => ac.abort() })
+    const stop = iconButton('stop', 'Cancel', { class: 'mcpi-btn', onclick: () => ac.abort() })
     btn.after(stop)
     try {
       if (c.state !== 'connected') await ctx.connect(ctx.current(), true)
@@ -67,15 +67,15 @@ export function panes(ctx) {
   function tools(tool) {
     const f = form(tool.inputSchema, ui)
     const out = output(ui)
-    const run = h('button', { type: 'button', class: 'mcpi-run', text: 'Run' })
+    const run = iconButton('play', 'Run', { class: 'mcpi-run' })
     /* A tool its server marks destructive runs on the second press: the first one says what it may do. */
     const risky = !!(tool.annotations && tool.annotations.destructiveHint === true)
     let armed = 0
-    const disarm = () => { clearTimeout(armed); armed = 0; run.textContent = 'Run'; run.classList.remove('is-sure') }
+    const disarm = () => { clearTimeout(armed); armed = 0; setLabel(run, 'Run', 'play'); run.classList.remove('is-sure') }
     run.addEventListener('click', () => {
       const args = f.check()
       if (!args) return
-      if (risky && !armed) { run.textContent = ui.runSure; run.classList.add('is-sure'); armed = setTimeout(disarm, 6000); return }
+      if (risky && !armed) { setLabel(run, ui.runSure, 'warn'); run.classList.add('is-sure'); armed = setTimeout(disarm, 6000); return }
       if (risky) disarm()
       call(out, run, 'tools/call', { name: tool.name, arguments: args })
     })
@@ -106,14 +106,14 @@ export function panes(ctx) {
     const f = form(schema, ui)
     for (const x of f.fields) completer(x, { type: 'ref/prompt', name: p.name })
     const out = output(ui)
-    const run = h('button', { type: 'button', class: 'mcpi-run', text: 'Get' })
+    const run = iconButton('play', 'Get', { class: 'mcpi-run' })
     run.addEventListener('click', () => { const args = f.check(); if (args) call(out, run, 'prompts/get', { name: p.name, arguments: args }) })
     return { pane: h('div', { class: 'mcpi-item' }, intro(p.name, p.title, p.description), f.el, h('div', { class: 'mcpi-actions' }, run), out.el) }
   }
 
   function resources(r) {
     const out = output(ui)
-    const run = h('button', { type: 'button', class: 'mcpi-run', text: 'Read' })
+    const run = iconButton('book', 'Read', { class: 'mcpi-run' })
     const c = ctx.conn()
     const caps = capsOf()
     let formEl = null
@@ -138,7 +138,7 @@ export function panes(ctx) {
     } else {
       run.addEventListener('click', () => call(out, run, 'resources/read', { uri: r.uri }))
       if (caps.resources && caps.resources.subscribe) {
-        sub = h('button', { type: 'button', class: 'mcpi-btn', text: c.subs.has(r.uri) ? 'Unsubscribe' : 'Subscribe', 'aria-pressed': c.subs.has(r.uri) ? 'true' : 'false' })
+        sub = iconButton(c.subs.has(r.uri) ? 'bellOff' : 'bell', c.subs.has(r.uri) ? 'Unsubscribe' : 'Subscribe', { class: 'mcpi-btn', 'aria-pressed': c.subs.has(r.uri) ? 'true' : 'false' })
         sub.addEventListener('click', async () => {
           sub.disabled = true
           try {
@@ -146,7 +146,7 @@ export function panes(ctx) {
             await c.send(c.subs.has(r.uri) ? 'resources/unsubscribe' : 'resources/subscribe', { uri: r.uri })
           } catch (e) { out.show({ error: ctx.explain(e) }) }
           sub.disabled = false
-          sub.textContent = c.subs.has(r.uri) ? 'Unsubscribe' : 'Subscribe'
+          setLabel(sub, c.subs.has(r.uri) ? 'Unsubscribe' : 'Subscribe', c.subs.has(r.uri) ? 'bellOff' : 'bell')
           sub.setAttribute('aria-pressed', c.subs.has(r.uri) ? 'true' : 'false')
         })
       }

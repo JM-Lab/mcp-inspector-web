@@ -6,7 +6,7 @@
  *                                               copy the link that opens it here, and add it to an AI client (add-to-ai.js)
  *   shareBox(link, ui, onAdd)                   what the open server's Share box holds: the link to copy, and the AI client button
  */
-import { h, copyButton } from './dom.js'
+import { h, copyButton, iconButton } from './dom.js'
 import { hostOf, iconCandidates, countsText } from './lib.js'
 import { initialsOf, hueOf } from './initials.js'
 import { lineIcon } from './icons.js'
@@ -69,7 +69,7 @@ export function shareBox(link, ui, onAdd) {
     h('p', { class: 'mcpi-hint is-shown', text: ui.shareNote }),
     /* The connect link goes on to an AI client, so it is copied under the client picked in the popup. */
     h('p', { class: 'mcpi-label mcpi-share-kind' }, lineIcon('plug', 14), h('span', { text: ui.addAi })),
-    h('button', { type: 'button', class: 'mcpi-btn mcpi-add-ai', text: ui.addAiBtn, onclick: onAdd }),
+    iconButton('ai', ui.addAiBtn, { class: 'mcpi-btn mcpi-add-ai', onclick: onAdd }),
     h('p', { class: 'mcpi-hint is-shown', text: ui.connectNote }),
   ]
 }

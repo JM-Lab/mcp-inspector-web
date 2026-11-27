@@ -186,6 +186,23 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     await b.run(`document.querySelector('.mcpi-dbg-pill[data-mode=list]').click()`)
   })
 
+  await t.test('every action button shows an icon with its word, in one style', async () => {
+    /* Tool, prompt and resource panes, the header, the auth box and the Share box: none is left as words alone. Copy is an icon alone, its word in the tooltip. */
+    const bare = `[...document.querySelectorAll('.mcpi .mcpi-btn, .mcpi .mcpi-run, .mcpi .mcpi-json, .mcpi-addto-trigger')].filter((b) => !b.querySelector('svg') || (!b.textContent.trim() && !b.classList.contains('mcpi-icon-btn'))).map((b) => b.className + ':' + b.textContent)`
+    for (const tab of ['Tools', 'Prompts', 'Resources']) {
+      await b.run(`$t.tab('${tab}').click()`)
+      assert.deepEqual(await b.run(bare), [], tab)
+    }
+    await b.run(`$t.tab('Tools').click()`)
+    /* The tabs too: each has its icon before its name. */
+    assert.deepEqual(await b.run(`[...document.querySelectorAll('.mcpi-tab')].map((x) => !!x.querySelector('svg') && x.textContent.trim().split(/\\s|\\d/)[0])`), ['Tools', 'Prompts', 'Resources', 'Debug'])
+    /* On a phone the four tabs still fit their row, none cut off or scrolled away. */
+    await b.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 780, deviceScaleFactor: 1, mobile: true })
+    await new Promise((r) => setTimeout(r, 100))
+    assert.equal(await b.run(`(() => { const t = document.querySelector('.mcpi-tabs'); return t.scrollWidth <= t.clientWidth && [...t.children].every((x) => x.getBoundingClientRect().right <= t.getBoundingClientRect().right + 1) })()`), true)
+    await b.send('Emulation.clearDeviceMetricsOverride')
+  })
+
   await t.test('Ping answers with a time', async () => {
     await b.run(`[...document.querySelectorAll('button')].find((x) => x.textContent.startsWith('Ping')).click()`)
     await b.until(`[...document.querySelectorAll('button')].some((x) => /^Ping \\d+ ms$/.test(x.textContent))`)
@@ -234,7 +251,8 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     await b.run(`sessionStorage.removeItem('mcpi:header-tokens')`)
     await open()
     await b.run(`${card}.click()`)
-    await b.until(`$t.status() === 'Failed' && !document.querySelector('.mcpi-auth').hidden`)
+    await b.until(`$t.status() === 'Sign-in needed' && !document.querySelector('.mcpi-auth').hidden`)
+    assert.equal(await b.run(`document.querySelector('.mcpi-status').dataset.state`), 'auth', 'not shown as a failure')
     assert.deepEqual(await b.run(`[...document.querySelectorAll('.mcpi-token input')].map((i) => i.value)`), ['x-test-key', ''])
     /* Put back, as the tab had it, for the tests that follow. */
     await b.run(`sessionStorage.setItem('mcpi:header-tokens', ${JSON.stringify(tokens)})`)
@@ -330,6 +348,64 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     await noSecrets(['code-1'])
   })
 
+  /* Which revision of the protocol a server speaks: shown in the head, with what it means, and in Debug with how it was found. */
+  const proto = `(() => { const p = document.querySelector('.mcpi-proto'); const n = document.querySelector('.mcpi-proto-note'); const d = document.querySelector('.mcpi-dbg-proto'); return { text: p && p.textContent, level: p && p.dataset.level, era: p && p.dataset.era, note: n && !n.hidden ? n.textContent : '', debug: d && !d.hidden ? d.textContent : '', debugLevel: d && d.dataset.level } })()`
+  const openAt = async (path: string) => {
+    await open('?u=' + mcp.base + path)
+    await b.until(`$t.status() === 'Connected' && document.querySelector('.mcpi-proto')`)
+    await b.run(`$t.tab('Debug').click()`)
+    await b.until(`document.querySelector('.mcpi-dbg-proto') && !document.querySelector('.mcpi-dbg-proto').hidden`, 3000)
+    return b.run(proto)
+  }
+
+  await t.test('a 2026-07-28 server: shown as current, spoken to without initialize, with Ping, a list change and elicitation working', async () => {
+    const p = await openAt('/modern-mcp')
+    assert.deepEqual([p.text, p.level, p.era, p.note], ['protocol 2026-07-28 (current)', 'current', 'modern', ''])
+    assert.match(p.debug, /^Protocol 2026-07-28 · the server answered server\/discover: no initialize, no session\.$/)
+    const rows: string[] = await b.run(`[...document.querySelectorAll('.mcpi-dbg-row summary code')].map((c) => c.textContent)`)
+    assert.ok(rows.some((r) => r.includes('server/discover')) && !rows.some((r) => r.includes('initialize')), 'discover, and no initialize')
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-dbg-row[data-level=fail]').length`), 0)
+    /* The logging level is a 2025 request, so it is not offered. Ping sends server/discover, and says so. */
+    assert.equal(await b.run(`document.querySelector('.mcpi-level').hidden`), true)
+    assert.match(await b.run(`[...document.querySelectorAll('button')].find((x) => x.textContent.startsWith('Ping')).title`), /server\/discover/)
+    await b.run(`[...document.querySelectorAll('button')].find((x) => x.textContent.startsWith('Ping')).click()`)
+    await b.until(`[...document.querySelectorAll('button')].some((x) => /^Ping \\d+ ms$/.test(x.textContent))`)
+    /* Elicitation: the server answers "input required", and the same form appears. */
+    await b.run(`$t.tab('Tools').click(); $t.pick('ask_name'); $t.run()`)
+    await b.until(`document.querySelector('.mcpi-ask')`)
+    await b.run(`$t.set($t.field('name', '.mcpi-ask'), 'Ada'); $t.button('Accept', document.querySelector('.mcpi-ask')).click()`)
+    await b.until(`$t.out().includes('Ada')`)
+    /* A list change arrives on the stream the client opened. */
+    const before = await b.run(`$t.count('Tools')`)
+    await b.run(`$t.pick('add_tool'); $t.run()`)
+    await b.until(`$t.count('Tools') === ${before} + 1`, 5000)
+  })
+
+  await t.test('a 2025-11-25 server: an info note that it is the earlier way and fine, and Debug says the probe was not answered', async () => {
+    const p = await openAt('/mcp')
+    assert.deepEqual([p.text, p.level, p.era], ['protocol 2025-11-25 (earlier way)', 'info', 'legacy'])
+    assert.match(p.note, /^Connected the earlier way: an initialize handshake and a session, at revision 2025-11-25\. That is fine, and the specification still allows it\.$/)
+    assert.match(p.debug, /^Protocol 2025-11-25 · initialize handshake and a session\. The 2026-07-28 probe \(server\/discover\) was tried first and answered “400 .*”, so the earlier way was used\. That is fine: the specification still allows it\. Show the probe$/)
+    assert.equal(p.debugLevel, 'info')
+    /* The probe is a row marked as expected, not as failed, and the Debug tab carries no error mark. */
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-dbg-row[data-level=fail]').length`), 0)
+    assert.equal(await b.run(`!!document.querySelector('.mcpi-tab i.is-bad')`), false)
+    await b.run(`$t.button('Show the probe', document.querySelector('.mcpi-dbg-proto')).click()`)
+    await b.until(`document.querySelector('.mcpi-dbg-row.is-hit .mcpi-dbg-hint')`, 3000)
+    assert.match(await b.run(`document.querySelector('.mcpi-dbg-row.is-hit').textContent`), /server\/discover.*Nothing is wrong\./)
+    assert.equal(await b.run(`document.querySelector('.mcpi-level').hidden`), false, 'the logging level is offered the 2025 way')
+  })
+
+  await t.test('an older server: a warning that names what came later, or says that everything works', async () => {
+    const old = await openAt('/rev-2025-03-26-mcp')
+    assert.deepEqual([old.text, old.level, old.era, old.debugLevel], ['protocol 2025-03-26 (older revision)', 'warn', 'legacy', 'warn'])
+    assert.match(old.note, /^This server speaks revision 2025-03-26, an older one\. It works here\. These came with a later revision, so it may not offer them: asking you for input \(elicitation, 2025-06-18\), display titles \(2025-06-18\)\.$/)
+    assert.equal(await b.run(`document.querySelector('.mcpi-status').textContent`), 'Connected', 'a warning, not a failure')
+    const mid = await openAt('/rev-2025-06-18-mcp')
+    assert.deepEqual([mid.text, mid.level], ['protocol 2025-06-18 (older revision)', 'warn'])
+    assert.equal(mid.note, 'This server speaks revision 2025-06-18, an older one. Everything this inspector does works with it.')
+  })
+
   await t.test('a registry link opens that server, and the share box offers the same link and the AI button', async () => {
     await open('?r=io.test/local')
     await b.until(`$t.status() === 'Connected'`)
@@ -376,7 +452,7 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     const calls = mcp.oauth.tokenCalls
     await b.run('sessionStorage.clear()')
     await open('?u=' + mcp.base + '/oauth-mcp&oauth')
-    await b.until(`$t.status() === 'Failed'`)
+    await b.until(`$t.status() === 'Sign-in needed'`)
     assert.equal(await b.run(`$t.button('Connect with OAuth (PKCE)').hidden`), false)
     assert.equal(await b.run('location.origin'), origin, 'still on this page, no redirect')
     assert.equal(mcp.oauth.tokenCalls, calls)
@@ -773,13 +849,13 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     /* It does not connect (it needs a token not given): nothing is handed on. */
     await b.run('sessionStorage.clear()')
     await open('?u=' + mcp.base + '/locked&to=vscode')
-    await b.until(`$t.status() === 'Failed'`)
+    await b.until(`$t.status() === 'Sign-in needed'`)
     await new Promise((r) => setTimeout(r, 300))
     assert.equal(await b.run(popup), null, 'no popup for a server that did not answer')
 
     /* OAuth: the sign-in leaves the page and comes back; once connected, the server goes on to the client the link named. */
     await open('?u=' + mcp.base + '/oauth-mcp&oauth&to=claude-code')
-    await b.until(`$t.status() === 'Failed'`)
+    await b.until(`$t.status() === 'Sign-in needed'`)
     await b.run(`$t.button('Connect with OAuth (PKCE)').click()`)
     await b.until(`document.querySelector('.mcpi-status')?.textContent === 'Connected' && document.querySelector('dialog.mcpi-addto')`, 20000)
     assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail').dataset.client`), 'claude-code')

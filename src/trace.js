@@ -29,6 +29,8 @@
  *     .subscribe(fn) → off       fn() after each change
  *     .clear()
  *   judge(events) → { level(ev), flow, failure }   what went right and wrong (see below)
+ *   protocolOf(events) → { era, version, level, probe, fellBack }   2026-07-28 (server/discover) or the 2025 way (initialize)
+ *   revisionLevel(version)                        'current', 'info' or 'warn' for a negotiated revision
  *   rowsOf(events) → { list, carried, level, keep } the rows a list shows: a request with the messages it carried
  *   toLog(events, { messages }) → text            one line per event; JSON-RPC content only with messages: true
  *   masked(value), maskedUrl(url)                 the same with secrets replaced
@@ -495,6 +497,67 @@ function flowOf(events) {
   return { steps, failed: failed >= 0 ? steps[failed] : null, from: list[0].seq, current: list[list.length - 1] === events[events.length - 1] }
 }
 
+/* ---- which way the protocol is spoken ---- */
+
+/** 2026-07-28 and later: no initialize and no session; the client asks server/discover. */
+export const MODERN_REVISION = '2026-07-28'
+/** The newest of the 2025 revisions (initialize and a session). */
+export const NEWEST_LEGACY_REVISION = '2025-11-25'
+/**
+ * How a negotiated revision stands: 'current' (2026-07-28 or later), 'info' (2025-11-25: the earlier way, still allowed),
+ * 'warn' (older than that), or null when there is none. Revisions are dates, so they compare as text.
+ */
+export function revisionLevel(version) {
+  if (!version || !/^\d{4}-\d\d-\d\d$/.test(version)) return null
+  return version >= MODERN_REVISION ? 'current' : version >= NEWEST_LEGACY_REVISION ? 'info' : 'warn'
+}
+
+const META_VERSION = 'io.modelcontextprotocol/protocolVersion'
+const metaVersion = (m) => (m && m.params && m.params._meta && m.params._meta[META_VERSION]) || null
+
+/**
+ * protocolOf(events) → what the last connection settled on, read from the messages themselves:
+ *   era       'modern' (server/discover answered), 'legacy' (initialize), or null (not connected yet)
+ *   version   the revision in use
+ *   level     revisionLevel(version)
+ *   probe     the server/discover the client tried first: { seq, ok, asked, status?, error? }; null when it did not probe
+ *   fellBack  it probed, was not answered that way, and used initialize instead
+ */
+export function protocolOf(events) {
+  const none = { era: null, version: null, level: null, probe: null, fellBack: false }
+  if (!events.length) return none
+  const run = events[events.length - 1].run
+  const list = events.filter((e) => e.run === run)
+  const bySeq = new Map(list.map((e) => [e.seq, e]))
+  const out = (method) => list.find((e) => e.type === 'rpc' && e.dir === 'out' && e.method === method)
+  const replyOf = (e) => (e && e.reply != null ? bySeq.get(e.reply) : null)
+  const asked = out('server/discover')
+  const init = out('initialize')
+  let probe = null
+  if (asked) {
+    const reply = replyOf(asked)
+    const http = asked.http != null ? bySeq.get(asked.http) : null
+    const err = (reply && reply.message && reply.message.error) || (http && http.response && http.response.error) || null
+    const ok = !!(reply && reply.message && reply.message.result)
+    probe = { seq: http ? http.seq : asked.seq, ok, asked: metaVersion(asked.message) }
+    if (http && http.status != null) probe.status = http.status
+    if (!ok && err) probe.error = typeof err === 'string' ? err : err.message || String(err.code)
+  }
+  const initReply = replyOf(init)
+  if (initReply && initReply.message && initReply.message.result) {
+    const version = initReply.message.result.protocolVersion || null
+    return { era: 'legacy', version, level: revisionLevel(version), probe, fellBack: !!probe && !probe.ok }
+  }
+  if (probe && probe.ok) {
+    /* What the requests after it say they speak; before any, the newest revision the server offers. */
+    const later = list.find((e) => e.type === 'rpc' && e.dir === 'out' && e.method !== 'server/discover' && metaVersion(e.message))
+    const offered = (replyOf(asked).message.result.supportedVersions || []).slice().sort().pop()
+    const version = (later && metaVersion(later.message)) || probe.asked || offered || null
+    return { era: 'modern', version, level: revisionLevel(version), probe, fellBack: false }
+  }
+  return Object.assign(none, { probe, fellBack: !!probe && !probe.ok && !!init })
+}
+
 /**
  * judge(events) → { flow, failure, level(event) }
  *   flow      the OAuth sign-in as steps (null when there was none)
@@ -506,7 +569,17 @@ export function judge(events) {
   const inFlow = new Set()
   if (flow) for (const st of flow.steps) for (const s of st.events) inFlow.add(s)
   const replies = new Map(events.filter((e) => e.type === 'rpc' && e.dir === 'in' && e.to != null).map((e) => [e.to, e]))
+  /* A server/discover the server did not answer, after which initialize was used: the way an earlier server is found, not a failure. */
+  const probes = new Set()
+  for (const e of events) {
+    if (e.type !== 'rpc' || e.dir !== 'out' || e.method !== 'server/discover') continue
+    if (!events.some((x) => x.type === 'rpc' && x.dir === 'out' && x.run === e.run && x.method === 'initialize' && x.seq > e.seq)) continue
+    probes.add(e.seq)
+    if (e.http != null) probes.add(e.http)
+    if (e.reply != null) probes.add(e.reply)
+  }
   const level = (e) => {
+    if (probes.has(e.seq)) return 'info'
     if (e.type === 'note') return (e.kind === 'return' || e.kind === 'redirect') && e.ok === false ? 'fail' : 'info'
     if (e.type === 'rpc') {
       if (e.message && e.message.error) return 'fail'

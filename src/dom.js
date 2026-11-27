@@ -1,4 +1,5 @@
 /* Small DOM helpers shared by the UI modules. */
+import { lineIcon } from './icons.js'
 
 /** Makes an element. attrs: class, text, on<event> handlers, anything else as an attribute (true is an empty attribute, null and false are left out). */
 export function h(tag, attrs, ...kids) {
@@ -23,6 +24,18 @@ export function linkify(pre, text) {
     last = m.index + url.length
   }
   pre.append(text.slice(last))
+}
+
+/**
+ * A button that says what it does with an icon and a word, the one style for every action button.
+ * setLabel changes the word (and the icon, if given) without losing the other.
+ */
+export function iconButton(icon, text, attrs = {}) {
+  return h('button', Object.assign({ type: 'button' }, attrs), lineIcon(icon, 15), h('span', { text }))
+}
+export function setLabel(b, text, icon) {
+  b.querySelector('span').textContent = text
+  if (icon) b.querySelector('svg').replaceWith(lineIcon(icon, 15))
 }
 
 /**

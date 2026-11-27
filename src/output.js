@@ -2,7 +2,7 @@
  * The answer box under Run. It shows the content parts (text, images, links), or the raw JSON with the JSON toggle.
  *   output(ui) → { el, show({ result | error, ms, reveal }), busy(), progress(p) }
  */
-import { h, linkify } from './dom.js'
+import { h, linkify, iconButton } from './dom.js'
 import { partsOf } from './lib.js'
 
 function renderParts(box, result) {
@@ -27,7 +27,7 @@ function renderParts(box, result) {
 export function output(ui) {
   const body = h('div', { class: 'mcpi-res', tabindex: '0' })
   const note = h('span')
-  const toggle = h('button', { type: 'button', class: 'mcpi-json', text: 'JSON', 'aria-pressed': 'false' })
+  const toggle = iconButton('braces', 'JSON', { class: 'mcpi-json', 'aria-pressed': 'false' })
   const el = h('div', { class: 'mcpi-out', hidden: true }, h('div', { class: 'mcpi-out-bar' }, note, toggle), body)
   let cur = null
   const paint = () => {

@@ -207,3 +207,83 @@ test('Conn: a header token goes to the MCP server only, never with the OAuth req
   for (const [k, has] of sent) if (k !== 'mcp') assert.equal(has, false, k + ' request has no header token')
   assert.ok(sent.some(([k]: [string]) => k === 'register'), 'the OAuth requests did run')
 })
+
+/* ---- the two ways of speaking the protocol: 2026-07-28 (server/discover) and the 2025 way (initialize) ---- */
+
+const everything = async (path: string) => {
+  let changed = 0
+  let asked: { message?: string } | null = null
+  const c = new Conn({ key: 'k', name: 'local', url: base + path }, { onListsChanged: () => { changed++ }, onElicit: async (_c: unknown, p: { message?: string }) => { asked = p; return { action: 'accept', content: { name: 'Ada' } } } })
+  const live = await c.connect()
+  const out: Record<string, unknown> = { era: c.era, version: live.info.protocolVersion, infoEra: live.info.era, server: live.info.serverInfo.name, instructions: live.info.instructions, tools: live.tools.length }
+  out.echo = (await c.send('tools/call', { name: 'echo', arguments: { text: 'hi' } })).content[0].text
+  out.asked = JSON.parse((await c.send('tools/call', { name: 'ask_name', arguments: {} })).content[0].text)
+  out.question = asked && (asked as { message?: string }).message
+  const seen: number[] = []
+  await c.send('tools/call', { name: 'slow', arguments: { steps: 2 } }, { onprogress: (p: { progress: number }) => seen.push(p.progress) })
+  out.progress = seen
+  await c.send('ping')
+  out.ping = typeof c.lastMs
+  out.complete = (await c.send('completion/complete', { ref: { type: 'ref/prompt', name: 'greet' }, argument: { name: 'lang', value: 'ko' } })).completion.values
+  const ac = new AbortController()
+  const pending = c.send('tools/call', { name: 'slow', arguments: { steps: 50 } }, { signal: ac.signal })
+  setTimeout(() => ac.abort(), 60)
+  out.cancelled = await pending.then(() => false, () => true)
+  await new Promise((r) => setTimeout(r, 100))
+  await c.send('tools/call', { name: 'add_tool', arguments: {} })
+  for (let i = 0; i < 40 && !changed; i++) await new Promise((r) => setTimeout(r, 25))
+  out.changed = changed
+  out.toolsAfter = (await c.lists()).tools.length
+  return { c, out }
+}
+const SAME = { server: 'mcpi-test', instructions: 'test instructions', tools: 5, echo: 'hi', asked: { action: 'accept', content: { name: 'Ada' } }, question: 'What is your name?', progress: [1, 2], ping: 'number', complete: ['korean'], cancelled: true, changed: 1, toolsAfter: 6 }
+
+test('Conn: a 2026-07-28 server is spoken to the modern way, and everything the inspector does works on it', async () => {
+  const { c, out } = await everything('/modern-mcp')
+  assert.deepEqual(out, { era: 'modern', version: '2026-07-28', infoEra: 'modern', ...SAME })
+  const sent = c.trace.events.filter((e: { type: string; dir: string }) => e.type === 'rpc' && e.dir === 'out').map((e: { method: string }) => e.method)
+  assert.equal(sent[0], 'server/discover')
+  assert.ok(!sent.includes('initialize') && !sent.includes('ping'), 'no initialize, and server/discover in place of ping')
+  assert.ok(sent.includes('subscriptions/listen'), 'list changes come on a stream the client opens')
+  assert.ok(!c.trace.events.some((e: { type: string; resHeaders?: Record<string, string> }) => e.type === 'http' && e.resHeaders && 'mcp-session-id' in e.resHeaders), 'no session')
+  /* Subscribing to a resource is a listen stream of its own, closed on unsubscribe. */
+  await c.send('resources/subscribe', { uri: 'test://clock' })
+  assert.ok(c.subs.has('test://clock') && c.listens.has('test://clock'))
+  await c.send('resources/unsubscribe', { uri: 'test://clock' })
+  assert.ok(!c.subs.has('test://clock') && !c.listens.has('test://clock'))
+  /* The 2025 request for a logging level does not exist on this revision. */
+  await assert.rejects(c.send('logging/setLevel', { level: 'info' }), /not supported/)
+  c.close()
+  assert.equal(c.listens.size, 0)
+})
+
+test('Conn: a server that speaks both ways is spoken to the modern way', async () => {
+  const { c, out } = await everything('/both-mcp')
+  assert.deepEqual(out, { era: 'modern', version: '2026-07-28', infoEra: 'modern', ...SAME })
+  c.close()
+})
+
+for (const [path, version] of [['/mcp', '2025-11-25'], ['/rev-2025-06-18-mcp', '2025-06-18'], ['/rev-2025-03-26-mcp', '2025-03-26']]) {
+  test('Conn: a server at ' + version + ' is found by a probe it does not answer, then spoken to the 2025 way', async () => {
+    const { c, out } = await everything(path)
+    assert.deepEqual(out, { era: 'legacy', version, infoEra: 'legacy', ...SAME })
+    const sent = c.trace.events.filter((e: { type: string; dir: string }) => e.type === 'rpc' && e.dir === 'out').map((e: { method: string }) => e.method)
+    assert.deepEqual(sent.slice(0, 3), ['server/discover', 'initialize', 'notifications/initialized'])
+    assert.ok(sent.includes('ping') && !sent.includes('subscriptions/listen'))
+    await c.send('logging/setLevel', { level: 'info' })
+    c.close()
+  })
+}
+
+test('Conn: with negotiation turned off, no probe is sent', async () => {
+  const c = new Conn({ key: 'k', name: 'local', url: base + '/mcp' }, { negotiation: 'legacy' })
+  await c.connect()
+  assert.equal(c.trace.events.some((e: { method?: string }) => e.method === 'server/discover'), false)
+  assert.equal(c.era, 'legacy')
+  c.close()
+  /* A server that speaks only the modern way cannot be reached then, and says which revisions it has. */
+  const m = new Conn({ key: 'k', name: 'local', url: base + '/modern-mcp' }, { negotiation: 'legacy' })
+  await assert.rejects(m.connect())
+  assert.equal(m.state, 'failed')
+  m.close()
+})

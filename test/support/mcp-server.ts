@@ -3,18 +3,32 @@
  * elicitation, progress and list_changed, plus a small OAuth authorization server. No outside network.
  *   startMcpServer({ cors }) → { base, oauth, close() }
  * cors: true answers browsers from any origin (and exposes Mcp-Session-Id), for the page test in a real browser.
+ *
+ * The same tools are served the ways a server can speak the protocol:
+ *   /mcp (and any other path)   the 2025 way only: initialize, a session, 2025-11-25
+ *   /modern-mcp                 2026-07-28 only: server/discover, no initialize, no session
+ *   /both-mcp                   both: 2026-07-28 to a client that asks, the 2025 way (stateless) to one that does not
+ *   /rev-2025-06-18-mcp, /rev-2025-03-26-mcp   the 2025 way, at that older revision only
  */
 import http from 'node:http'
-import { McpServer, WebStandardStreamableHTTPServerTransport, completable } from '@modelcontextprotocol/server'
+import { McpServer, WebStandardStreamableHTTPServerTransport, completable, createMcpHandler, inputRequired } from '@modelcontextprotocol/server'
 import { z } from 'zod/v4'
 
 
-function makeServer() {
-  const s = new McpServer({ name: 'mcpi-test', version: '0.0.1' }, { capabilities: { logging: {}, tools: { listChanged: true } }, instructions: 'test instructions' })
+/*
+ * versions: the revisions it answers initialize with (an older server). shared: what outlives one request where every
+ * request gets a server of its own (the 2026-07-28 way): whether add_tool was run, and how to tell the listeners.
+ */
+function makeServer({ versions, shared }: { versions?: string[], shared?: { added: boolean, changed: () => void } } = {}) {
+  const s = new McpServer({ name: 'mcpi-test', version: '0.0.1' }, { capabilities: { logging: {}, tools: { listChanged: true } }, instructions: 'test instructions', ...(versions ? { supportedProtocolVersions: versions } : {}) })
+  const added = () => s.registerTool('added', { description: 'new', inputSchema: z.object({}) }, async () => ({ content: [{ type: 'text', text: 'hi' }] }))
+  if (shared && shared.added) added()
   s.registerTool('echo', { description: 'echo', inputSchema: z.object({ text: z.string() }) }, async ({ text }) => ({ content: [{ type: 'text', text }] }))
   s.registerTool('wipe', { description: 'destructive', inputSchema: z.object({}), annotations: { destructiveHint: true } }, async () => ({ content: [{ type: 'text', text: 'wiped' }] }))
+  /* Written once for both ways: asks by answering "input required", which the SDK turns into an elicitation request on the 2025 way. */
   s.registerTool('ask_name', { description: 'elicitation', inputSchema: z.object({}) }, async (_a, ctx) => {
-    const r = await ctx.mcpReq.elicitInput({ message: 'What is your name?', requestedSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } })
+    const r = ctx.mcpReq.inputResponses && ctx.mcpReq.inputResponses.name
+    if (!r) return inputRequired({ inputRequests: { name: inputRequired.elicit({ message: 'What is your name?', requestedSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } }) } })
     return { content: [{ type: 'text', text: JSON.stringify(r) }] }
   })
   s.registerTool('slow', { description: 'progress', inputSchema: z.object({ steps: z.number().default(3) }) }, async ({ steps }, ctx) => {
@@ -26,7 +40,7 @@ function makeServer() {
     return { content: [{ type: 'text', text: 'done' }] }
   })
   s.registerTool('add_tool', { description: 'list_changed', inputSchema: z.object({}) }, async () => {
-    s.registerTool('added', { description: 'new', inputSchema: z.object({}) }, async () => ({ content: [{ type: 'text', text: 'hi' }] }))
+    if (shared) { if (!shared.added) { shared.added = true; shared.changed() } } else added()
     return { content: [{ type: 'text', text: 'added' }] }
   })
   s.registerPrompt('greet', { description: 'completion', argsSchema: z.object({ lang: completable(z.string(), (v) => ['korean', 'english'].filter((x) => x.startsWith(v))) }) }, ({ lang }) => ({ messages: [{ role: 'user', content: { type: 'text', text: 'hello in ' + lang } }] }))
@@ -91,6 +105,21 @@ export async function startMcpServer({ cors = false } = {}) {
   const oauth = { challenge: '', redirect: '', registered: 0, tokenCalls: 0 }
   const routes = oauthRoutes(() => base, oauth)
   const sessions = new Map<string, WebStandardStreamableHTTPServerTransport>()
+  /* The 2026-07-28 way: a server per request. Each handler has its own "was a tool added", told to whoever listens. */
+  const handlerFor = (legacy: 'stateless' | 'reject') => {
+    const shared = { added: false, changed: () => { h.notify.toolsChanged() } }
+    const h = createMcpHandler(() => makeServer({ shared }), { legacy, keepAliveMs: 0 })
+    return h
+  }
+  const modern = { '/modern-mcp': handlerFor('reject'), '/both-mcp': handlerFor('stateless') }
+  const pipe = async (req: http.IncomingMessage, res: http.ServerResponse, r: Response) => {
+    res.writeHead(r.status, Object.fromEntries(r.headers))
+    if (!r.body) { res.end(); return }
+    const reader = r.body.getReader()
+    req.on('close', () => reader.cancel().catch(() => {}))
+    for (;;) { const { done, value } = await reader.read(); if (done) break; res.write(value) }
+    res.end()
+  }
   const server = http.createServer(async (req, res) => {
     if (cors) {
       for (const [k, v] of Object.entries(CORS)) res.setHeader(k, v)
@@ -102,21 +131,19 @@ export async function startMcpServer({ cors = false } = {}) {
     const chunks: Buffer[] = []
     for await (const c of req) chunks.push(c as Buffer)
     const request = new Request(base + req.url, { method: req.method, headers: req.headers as Record<string, string>, body: ['GET', 'HEAD', 'DELETE'].includes(req.method!) ? undefined : Buffer.concat(chunks) })
+    const path = new URL(req.url!, base).pathname
+    const handler = modern[path as keyof typeof modern]
+    if (handler) { await pipe(req, res, await handler.fetch(request)); return }
     let t = sessions.get(req.headers['mcp-session-id'] as string)
     if (!t) {
       const made = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => crypto.randomUUID(), onsessioninitialized: (id) => { sessions.set(id, made) } })
       t = made
-      await makeServer().connect(t)
+      const rev = /^\/rev-(\d{4}-\d\d-\d\d)-mcp$/.exec(path)
+      await makeServer(rev ? { versions: [rev[1]] } : {}).connect(t)
     }
-    const r = await t.handleRequest(request)
-    res.writeHead(r.status, Object.fromEntries(r.headers))
-    if (!r.body) { res.end(); return }
-    const reader = r.body.getReader()
-    req.on('close', () => reader.cancel().catch(() => {}))
-    for (;;) { const { done, value } = await reader.read(); if (done) break; res.write(value) }
-    res.end()
+    await pipe(req, res, await t.handleRequest(request))
   })
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
   base = 'http://127.0.0.1:' + (server.address() as { port: number }).port
-  return { base, oauth, close: () => { server.closeAllConnections(); server.close() } }
+  return { base, oauth, close: () => { for (const h of Object.values(modern)) h.close().catch(() => {}); server.closeAllConnections(); server.close() } }
 }

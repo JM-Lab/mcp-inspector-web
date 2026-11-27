@@ -11,14 +11,14 @@
  * So 'Well known' and 'No auth needed' come from a prepared list (options.featured, see scripts/featured.js),
  * while 'Recently updated' and search ask the registry live, when pressed.
  */
-import { h } from './dom.js'
+import { h, iconButton } from './dom.js'
 import { cardBody, cardTools } from './cards.js'
 import { REG_FIRST, registryCards, featuredFor } from './lib.js'
 
 export function registryPanel({ cfg, ui, onPick, linkOf, onAdd, onRender = () => {} }) {
   const input = h('input', { type: 'search', placeholder: ui.regSearch, spellcheck: 'false', autocomplete: 'off', 'aria-label': 'MCP Registry' })
   const list = h('div', { class: 'mcpi-cards mcpi-reg-list' })
-  const more = h('button', { type: 'button', class: 'mcpi-btn mcpi-reg-more', text: ui.regMore, hidden: true })
+  const more = iconButton('down', ui.regMore, { class: 'mcpi-btn mcpi-reg-more', hidden: true })
   more.addEventListener('click', () => { for (const r of list.querySelectorAll('[hidden]')) r.hidden = false; more.hidden = true })
   const note = h('span')
   let timer = 0

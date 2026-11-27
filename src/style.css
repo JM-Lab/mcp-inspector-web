@@ -37,16 +37,36 @@
 .mcpi-status[data-state=connecting]::before{background:var(--mcpi-accent)}
 .mcpi-status[data-state=failed]{color:var(--mcpi-accent2)}
 .mcpi-status[data-state=failed]::before{background:var(--mcpi-accent2)}
+.mcpi-status[data-state=auth]{color:var(--mcpi-accent)}
+.mcpi-status[data-state=auth]::before{background:var(--mcpi-accent)}
+.mcpi-btn,.mcpi-run,.mcpi-json{display:inline-flex;align-items:center;justify-content:center;gap:.4rem}
+.mcpi-btn svg,.mcpi-run svg,.mcpi-json svg{flex-shrink:0}
 .mcpi-btn{min-height:36px;padding:0 .8rem;border:1px solid var(--mcpi-rule);border-radius:6px;background:var(--mcpi-card);font-size:.8rem;font-weight:700}
 .mcpi-btn:disabled,.mcpi-run:disabled{opacity:.6;cursor:progress}
 .mcpi-info{margin:0;padding:0 1rem;font-size:.74rem;color:var(--mcpi-mute);font-family:var(--mcpi-mono);overflow-wrap:anywhere}
 .mcpi-info:empty{display:none}
+/* The protocol revision: plain when current, marked when it is an earlier or an older one, with a line that says what that means. */
+.mcpi-proto.is-info{color:var(--mcpi-accent)}
+.mcpi-proto.is-warn{color:#a15c00;font-weight:700}
+.mcpi-proto-note{margin:.15rem 0 0;padding:0 1rem;font-size:.74rem;line-height:1.45;color:var(--mcpi-mute)}
+.mcpi-proto-note.is-warn{color:#a15c00}
+.mcpi-proto-note[hidden]{display:none}
+@media (prefers-color-scheme:dark){.mcpi-proto.is-warn,.mcpi-proto-note.is-warn{color:#f0b35a}}
 .mcpi-instr{margin:.3rem 1rem 0;font-size:.78rem}
 .mcpi-instr summary{cursor:pointer;color:var(--mcpi-mute);font-weight:700;min-height:32px;display:flex;align-items:center}
 .mcpi-instr pre{font-size:.74rem;line-height:1.55;padding:.7rem .8rem;border:1px solid var(--mcpi-rule);border-radius:8px;max-height:16rem;overflow:auto}
 .mcpi-tabs{display:flex;gap:.2rem;padding:.4rem .8rem 0;border-bottom:1px solid var(--mcpi-rule);overflow-x:auto;scrollbar-width:none}
-.mcpi-tab{border:0;background:none;min-height:42px;padding:0 .6rem;font-weight:700;color:var(--mcpi-mute)!important;border-bottom:2px solid transparent;white-space:nowrap}
-.mcpi-tab i{font-style:normal;font-weight:600;font-size:.72rem;margin-left:.35rem;opacity:.7}
+.mcpi-tab{display:inline-flex;align-items:center;gap:.35rem;border:0;background:none;min-height:42px;padding:0 .6rem;font-weight:700;color:var(--mcpi-mute)!important;border-bottom:2px solid transparent;white-space:nowrap}
+.mcpi-tab i{font-style:normal;font-weight:600;font-size:.72rem;opacity:.7}
+.mcpi-tab svg{flex-shrink:0;opacity:.85}
+.mcpi-tab i{margin-left:.3rem}
+/* When the server box is narrow (a phone, or a narrow page it sits in), the four tabs share the row, each with its icon over its name, so none is cut off. */
+.mcpi-main{container-type:inline-size}
+@container (max-width:480px){
+  .mcpi-tabs{gap:0;padding:.3rem .3rem 0}
+  .mcpi-tab{flex:1 1 0;min-width:0;flex-direction:column;justify-content:center;gap:.15rem;padding:.35rem .2rem;font-size:.74rem}
+  .mcpi-tab span{white-space:nowrap}
+}
 .mcpi-tab.is-on{color:var(--mcpi-ink)!important;border-bottom-color:var(--mcpi-ink)}
 .mcpi-body{display:flex;flex-direction:column;min-height:0;flex:1}
 .mcpi-list{display:none}

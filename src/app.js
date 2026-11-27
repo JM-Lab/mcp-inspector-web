@@ -19,7 +19,7 @@
  */
 import { Conn } from './conn.js'
 import { STRINGS } from './strings.js'
-import { rowEnd, h, linkify, labeled, secretField, infoNote } from './dom.js'
+import { rowEnd, h, linkify, labeled, secretField, infoNote, iconButton, setLabel } from './dom.js'
 import { lineIcon } from './icons.js'
 import { oauthStore } from './oauth.js'
 import { form } from './form.js'
@@ -29,10 +29,10 @@ import { registryPanel } from './registry.js'
 import { linkOf, readLink, registryEntry, mergeQuery, handoffStore } from './share.js'
 import { openAddToAi } from './add-to-ai.js'
 import { debugView, debugNotice, tripStore, judge } from './debug.js'
-import { CAP, REGISTRY, STORE_PREFIX, hostOf, cleanUrl, isPrivateAddress, pushFront, filled, loadStore, saveStore, explainError, registryCard, isActive } from './lib.js'
+import { CAP, REGISTRY, STORE_PREFIX, hostOf, cleanUrl, isPrivateAddress, pushFront, filled, loadStore, saveStore, explainError, registryCard, isActive, revisionNote } from './lib.js'
 
 /* The last tab is the debugger: every HTTP request and JSON-RPC message, and the OAuth flow. Its key stays 'history'. */
-const TABS = [['tools', 'Tools'], ['prompts', 'Prompts'], ['resources', 'Resources'], ['history', 'Debug']]
+const TABS = [['tools', 'Tools', 'tool'], ['prompts', 'Prompts', 'chat'], ['resources', 'Resources', 'page'], ['history', 'Debug', 'bug']]
 const LEVELS = ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency']
 
 export function mount(root, options) {
@@ -91,6 +91,7 @@ export function mount(root, options) {
     url: h('code'),
     status: h('span', { class: 'mcpi-status' }),
     info: h('p', { class: 'mcpi-info' }),
+    proto: h('p', { class: 'mcpi-proto-note', hidden: true }),
     instr: h('details', { class: 'mcpi-instr', hidden: true }, h('summary', { text: 'Instructions' }), h('pre')),
     tabs: h('div', { class: 'mcpi-tabs', role: 'tablist' }),
     list: h('nav', { class: 'mcpi-list' }),
@@ -135,9 +136,9 @@ export function mount(root, options) {
         h('p', { class: 'mcpi-ask-msg', text: params.message || ui.elicit }),
         f.el,
         h('div', { class: 'mcpi-actions' },
-          h('button', { type: 'button', class: 'mcpi-run', text: 'Accept', onclick: () => { let content; try { content = f.values() } catch (e) { return } done({ action: 'accept', content }) } }),
-          h('button', { type: 'button', class: 'mcpi-btn', text: 'Decline', onclick: () => done({ action: 'decline' }) }),
-          h('button', { type: 'button', class: 'mcpi-btn', text: 'Cancel', onclick: () => done({ action: 'cancel' }) })))
+          iconButton('check', 'Accept', { class: 'mcpi-run', onclick: () => { let content; try { content = f.values() } catch (e) { return } done({ action: 'accept', content }) } }),
+          iconButton('ban', 'Decline', { class: 'mcpi-btn', onclick: () => done({ action: 'decline' }) }),
+          iconButton('close', 'Cancel', { class: 'mcpi-btn', onclick: () => done({ action: 'cancel' }) })))
       el.asks.append(box)
       box.scrollIntoView({ block: 'nearest' })
     })
@@ -158,9 +159,9 @@ export function mount(root, options) {
     return c.unseen ? h('i', { class: 'is-new', text: c.unseen }) : null
   }
   function renderTabs() {
-    el.tabs.replaceChildren(...TABS.map(([k, label]) => h('button', {
+    el.tabs.replaceChildren(...TABS.map(([k, label, icon]) => h('button', {
       type: 'button', class: 'mcpi-tab' + (k === tab ? ' is-on' : ''), role: 'tab', 'aria-selected': k === tab ? 'true' : 'false', onclick: () => selectTab(k),
-    }, label, k === 'history' ? debugMark() : h('i', { text: itemsOf(k).length }))))
+    }, lineIcon(icon, 15), h('span', null, label, k === 'history' ? debugMark() : h('i', { text: itemsOf(k).length })))))
   }
 
   /* The view keeps itself current, so it is only put in place, not drawn again on each message. */
@@ -206,11 +207,28 @@ export function mount(root, options) {
     const s = snap()
     el.name.textContent = current.name
     el.url.textContent = current.url
-    el.status.textContent = c.state === 'connected' ? 'Connected' : c.state === 'connecting' ? ui.connecting : c.state === 'failed' ? 'Failed' : 'Not connected'
-    el.status.dataset.state = c.state
+    /* A server that only wants sign-in has not failed: it waits for the OAuth button or a token. */
+    el.status.textContent = c.state === 'connected' ? 'Connected' : c.state === 'connecting' ? ui.connecting : c.state === 'failed' ? (c.needAuth ? ui.needSignIn : 'Failed') : 'Not connected'
+    el.status.dataset.state = c.state === 'failed' && c.needAuth ? 'auth' : c.state
     const info = s && s.info
     const sv = (info && info.serverInfo) || {}
-    el.info.textContent = info ? [[sv.name, sv.version].filter(Boolean).join(' '), info.protocolVersion && 'protocol ' + info.protocolVersion, Object.keys(info.capabilities || {}).join(', ')].filter(Boolean).join(' · ') : ''
+    /*
+     * Which revision of the protocol the server speaks, with how it stands: the current one plainly, the newest earlier one
+     * with a note (it is fine), an older one with what this inspector uses that it may not have. Never as an error.
+     */
+    const rev = info && info.protocolVersion ? revisionNote(info.protocolVersion) : { level: null, missing: [] }
+    const protoText = !info || !info.protocolVersion ? '' : rev.level === 'current' ? ui.protoCurrent : rev.level === 'info' ? ui.protoEarlier : rev.level === 'warn' ? ui.protoOld : '{v}'
+    const featName = { elicitation: ui.featElicitation, titles: ui.featTitles, annotations: ui.featAnnotations, completions: ui.featCompletions }
+    const protoNote = rev.level === 'info' ? ui.protoInfo : rev.level === 'warn' ? (rev.missing.length ? ui.protoWarn.replace('{list}', rev.missing.map((k) => featName[k]).join(', ')) : ui.protoWarnNone) : ''
+    const dot = () => document.createTextNode(' · ')
+    const parts = info ? [
+      [sv.name, sv.version].filter(Boolean).join(' ') || null,
+      info.protocolVersion ? h('span', { class: 'mcpi-proto' + (rev.level ? ' is-' + rev.level : ''), 'data-level': rev.level || '', 'data-era': info.era || '', title: protoNote.replace('{v}', info.protocolVersion) || null }, 'protocol ' + protoText.replace('{v}', info.protocolVersion)) : null,
+      Object.keys(info.capabilities || {}).join(', ') || null].filter(Boolean) : []
+    el.info.replaceChildren(...parts.flatMap((x, i) => (i ? [dot(), x] : [x])))
+    el.proto.hidden = !protoNote
+    el.proto.className = 'mcpi-proto-note' + (rev.level ? ' is-' + rev.level : '')
+    el.proto.textContent = protoNote.replace('{v}', (info && info.protocolVersion) || '')
     el.instr.hidden = !(info && info.instructions)
     if (info && info.instructions) { const pre = el.instr.querySelector('pre'); pre.replaceChildren(); linkify(pre, info.instructions) }
     renderShare()
@@ -219,7 +237,9 @@ export function mount(root, options) {
       b.setAttribute('aria-pressed', b.dataset.key === current.key ? 'true' : 'false')
       b.dataset.state = conns[b.dataset.key] ? conns[b.dataset.key].state : 'idle'
     }
-    el.level.hidden = !(c.state === 'connected' && info && info.capabilities && info.capabilities.logging)
+    /* logging/setLevel is of the 2025 revisions only; the modern one has no such request. */
+    el.level.hidden = !(c.state === 'connected' && info && info.capabilities && info.capabilities.logging && info.era !== 'modern')
+    ping.title = c.state === 'connected' && info && info.era === 'modern' ? ui.pingModern : ''
     /* A server that once asked for authentication keeps its OAuth button (if it vanished after a failed OAuth, nobody would know what happened). */
     if (c.needAuth) current.wantsAuth = true
     const wants = c.needAuth || current.wantsAuth
@@ -440,7 +460,7 @@ export function mount(root, options) {
   authPick.addEventListener('change', () => { headerRow.hidden = authPick.value !== 'header'; addHint.hidden = authPick.value !== 'oauth' })
   const addForm = h('form', { class: 'mcpi-add' },
     urlInput,
-    h('button', { type: 'submit', class: 'mcpi-run', text: 'Add' }),
+    iconButton('plus', 'Add', { type: 'submit', class: 'mcpi-run' }),
     h('details', null, h('summary', { text: ui.authLabel }), h('div', { class: 'mcpi-add-row' }, authPick, headerRow), addHint))
   addForm.addEventListener('submit', async (e) => {
     e.preventDefault()
@@ -463,17 +483,17 @@ export function mount(root, options) {
   })
 
   /* Ping, Reconnect and the logging level, next to the server name. */
-  const reconnect = h('button', { type: 'button', class: 'mcpi-btn', text: 'Reconnect' })
+  const reconnect = iconButton('refresh', 'Reconnect', { class: 'mcpi-btn' })
   reconnect.addEventListener('click', () => reopen(current))
-  const ping = h('button', { type: 'button', class: 'mcpi-btn', text: 'Ping' })
+  const ping = iconButton('pulse', 'Ping', { class: 'mcpi-btn' })
   ping.addEventListener('click', async () => {
     const c = conn()
     ping.disabled = true
     try {
       if (c.state !== 'connected') await connect(current, true)
       await c.send('ping')
-      ping.textContent = 'Ping ' + c.lastMs + ' ms'
-    } catch (e) { ping.textContent = 'Ping failed' }
+      setLabel(ping, 'Ping ' + c.lastMs + ' ms')
+    } catch (e) { setLabel(ping, 'Ping failed') }
     ping.disabled = false
     renderHead()
   })
@@ -485,8 +505,8 @@ export function mount(root, options) {
   const tName = h('input', { type: 'text', value: 'Authorization', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Header name' })
   const tValue = h('input', { type: 'text', placeholder: 'Bearer <token>', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Header value' })
   const authNote = h('p', { class: 'mcpi-auth-note' })
-  const signIn = h('button', { type: 'button', class: 'mcpi-btn', text: ui.oauthBtn })
-  const tSave = h('button', { type: 'submit', class: 'mcpi-btn', text: 'Save & reconnect' })
+  const signIn = iconButton('key', ui.oauthBtn, { class: 'mcpi-btn' })
+  const tSave = iconButton('save', 'Save & reconnect', { type: 'submit', class: 'mcpi-btn' })
   const tForm = h('form', { class: 'mcpi-token' }, labeled(ui.hName, tName), labeled(ui.hValue, secretField(tValue, lineIcon, secretWords)), tSave)
   const [tokenInfo, tokenInfoNote] = infoNote(ui.tokenNote, lineIcon)
   tForm.addEventListener('submit', (e) => {
@@ -508,7 +528,7 @@ export function mount(root, options) {
     h('div', { class: 'mcpi-top' },
       h('div', { class: 'mcpi-id' }, el.name, el.url),
       h('div', { class: 'mcpi-top-actions' }, el.status, el.level, ping, reconnect)),
-    el.alert, el.info, el.auth, el.share, el.instr, el.asks, el.tabs,
+    el.alert, el.info, el.proto, el.auth, el.share, el.instr, el.asks, el.tabs,
     h('div', { class: 'mcpi-body' }, el.list, el.select, el.pane))
   root.replaceChildren(el.servers, main, ...(registry ? [registry.el] : []))
   renderServers()
@@ -583,7 +603,7 @@ export function mount(root, options) {
      */
     if (isNew && isPrivateAddress(s.url) && (cfg.holdPrivate === true || (cfg.holdPrivate !== false && !isPrivateAddress(location.href)))) {
       const note = h('p', { class: 'mcpi-auth-note mcpi-notice mcpi-hold', role: 'alert' }, h('span', { text: ui.holdLocal.replace('{v}', s.url) + ' ' }),
-        h('button', { type: 'button', class: 'mcpi-btn', text: ui.holdConnect, onclick: () => { note.remove(); if (current === s) reopen(s) } }))
+        iconButton('plug', ui.holdConnect, { class: 'mcpi-btn', onclick: () => { note.remove(); if (current === s) reopen(s) } }))
       root.prepend(note)
       select(s, null, false, true)
       return
