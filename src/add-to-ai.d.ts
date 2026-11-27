@@ -94,6 +94,10 @@ export function defineAddToAi(tag?: string): void
 export function slugOf(server: AddToAiServer): string
 export function worksOnPhone(client: AiClient): boolean
 export function isMobileDevice(nav?: Partial<Navigator> & { userAgentData?: { mobile?: boolean } }): boolean
+/** A phone or tablet with a share sheet (navigator.share). */
+export function hasShareSheet(nav?: Partial<Navigator> & { userAgentData?: { mobile?: boolean } }, mobile?: boolean): boolean
+/** Passes a link on through the share sheet (sheet true) or the clipboard. */
+export function passOn(url: string, sheet: boolean, nav?: Partial<Navigator>): Promise<'shared' | 'copied' | 'cancelled'>
 export function initialsOf(label: string): string
 export function hueOf(label: string): number
 export function watchOpen(missed: () => void, ms?: number, win?: Window | null): void

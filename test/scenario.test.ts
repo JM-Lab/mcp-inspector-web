@@ -12,7 +12,7 @@ import { Conn } from '../src/conn.js'
 import { readFileSync } from 'node:fs'
 
 const TARGET = 'com.microsoft/microsoft-learn-mcp'
-const REGISTRY = 'https://registry.modelcontextprotocol.io/v0/servers'
+const REGISTRY = 'https://registry.modelcontextprotocol.io/v0.1/servers'
 const off = process.env.MCPI_SCENARIO === '0'
 
 test('scenario: find a public server in the registry, connect, run a tool and read History', { skip: off && 'MCPI_SCENARIO=0', timeout: 60000 }, async (t) => {

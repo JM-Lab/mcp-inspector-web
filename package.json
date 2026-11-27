@@ -67,6 +67,7 @@
     "demo": "node scripts/build.js && node scripts/serve.js",
     "featured": "node scripts/featured.js --out demo/featured.json",
     "test": "node --test test/*.test.ts",
+    "coverage": "rm -rf .coverage && MCPI_COVERAGE=.coverage node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include='scripts/**' --test-coverage-include='bin/**' test/*.test.ts && node scripts/coverage.js .coverage",
     "typecheck": "npx -y -p typescript@5 tsc --noEmit --strict --skipLibCheck src/index.d.ts src/add-to-ai.d.ts src/lib.d.ts src/debug.d.ts",
     "prepublishOnly": "npm test && npm run typecheck && npm run build",
     "prepare": "npm run build",

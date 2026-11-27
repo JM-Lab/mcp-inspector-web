@@ -36,7 +36,7 @@ export const CAP = 10
 /** How many registry cards are shown before "Show more". */
 export const REG_FIRST = 6
 /** The official MCP Registry. */
-export const REGISTRY = 'https://registry.modelcontextprotocol.io/v0/servers'
+export const REGISTRY = 'https://registry.modelcontextprotocol.io/v0.1/servers'
 
 /*
  * An address on this computer or a private network (localhost, 127.x, 10.x, 172.16-31.x, 192.168.x, 169.254.x, .local, IPv6 loopback and local ranges).

@@ -17,6 +17,8 @@
 .mcpi input:focus,.mcpi select:focus,.mcpi textarea:focus{outline:2px solid var(--mcpi-accent);outline-offset:-1px}
 .mcpi-label{margin:0 0 .4rem;font-weight:800;font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:var(--mcpi-mute)}
 .mcpi-label span{font-weight:600;text-transform:none;letter-spacing:0}
+.mcpi-reg-source{color:inherit;text-decoration:underline;text-decoration-color:var(--mcpi-rule);text-underline-offset:3px}
+.mcpi-reg-source:hover{color:var(--mcpi-accent);text-decoration-color:currentColor}
 .mcpi-server[data-state=connected]::before{background:var(--mcpi-accent3)}
 .mcpi-server[data-state=connecting]::before{background:var(--mcpi-accent)}
 .mcpi-server[data-state=failed]::before{background:var(--mcpi-accent2)}
@@ -34,7 +36,17 @@
 .mcpi-status::before{content:'';display:inline-block;width:.5rem;height:.5rem;border-radius:50%;background:var(--mcpi-rule);margin-right:.4rem}
 .mcpi-status[data-state=connected]{color:var(--mcpi-accent3)}
 .mcpi-status[data-state=connected]::before{background:var(--mcpi-accent3)}
-.mcpi-status[data-state=connecting]::before{background:var(--mcpi-accent)}
+.mcpi-status[data-state=connecting]::before{background:none}
+/*
+ * Waiting shows a spinner, one ring drawn in the text color: while connecting (the status dot turns into it), on a button whose
+ * request is running (in place of its icon, aria-busy), and before "Asking…" or "Connecting…" text (.mcpi-busy).
+ */
+@keyframes mcpi-spin{to{transform:rotate(360deg)}}
+.mcpi-status[data-state=connecting]::before,.mcpi-busy::before,.mcpi [aria-busy=true]::before{content:'';display:inline-block;flex-shrink:0;width:.8rem;height:.8rem;box-sizing:border-box;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;background:none;animation:mcpi-spin .7s linear infinite;vertical-align:-.12rem;margin-right:.4rem}
+.mcpi [aria-busy=true]::before{margin-right:0}
+.mcpi [aria-busy=true] > svg{display:none}
+.mcpi-status[data-state=connecting]{color:var(--mcpi-accent)}
+@media (prefers-reduced-motion:reduce){.mcpi-status[data-state=connecting]::before,.mcpi-busy::before,.mcpi [aria-busy=true]::before{animation-duration:1.6s}}
 .mcpi-status[data-state=failed]{color:var(--mcpi-accent2)}
 .mcpi-status[data-state=failed]::before{background:var(--mcpi-accent2)}
 .mcpi-status[data-state=auth]{color:var(--mcpi-accent)}
@@ -66,6 +78,14 @@
   .mcpi-tabs{gap:0;padding:.3rem .3rem 0}
   .mcpi-tab{flex:1 1 0;min-width:0;flex-direction:column;justify-content:center;gap:.15rem;padding:.35rem .2rem;font-size:.74rem}
   .mcpi-tab span{white-space:nowrap}
+  /* Buttons whose icon says it alone show only the icon; the word stays for screen readers and in the tooltip. */
+  .is-compact{position:relative}
+  /* The status, logging level, Ping and Reconnect stay on one row: the level box gives way first. */
+  .mcpi-top-actions{flex-wrap:nowrap;gap:.35rem}
+  .mcpi-top-actions .mcpi-level{min-width:0;flex:0 1 auto;max-width:7.5rem}
+  .mcpi-top-actions .mcpi-status{white-space:nowrap}
+  .is-compact:not(.is-said){padding:0;min-width:40px;gap:0}
+  .is-compact:not(.is-said) > span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 }
 .mcpi-tab.is-on{color:var(--mcpi-ink)!important;border-bottom-color:var(--mcpi-ink)}
 .mcpi-body{display:flex;flex-direction:column;min-height:0;flex:1}

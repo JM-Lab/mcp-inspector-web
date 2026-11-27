@@ -13,7 +13,14 @@
  */
 import { h, iconButton } from './dom.js'
 import { cardBody, cardTools } from './cards.js'
-import { REG_FIRST, registryCards, featuredFor } from './lib.js'
+import { REG_FIRST, REGISTRY, registryCards, featuredFor } from './lib.js'
+
+/* An answer that is not a success is a failure, even with a JSON body (a 500 with {} must not read as "nothing found"). */
+async function getJson(url) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error('HTTP ' + res.status)
+  return res.json()
+}
 
 export function registryPanel({ cfg, ui, onPick, linkOf, onAdd, onRender = () => {} }) {
   const input = h('input', { type: 'search', placeholder: ui.regSearch, spellcheck: 'false', autocomplete: 'off', 'aria-label': 'MCP Registry' })
@@ -28,7 +35,7 @@ export function registryPanel({ cfg, ui, onPick, linkOf, onAdd, onRender = () =>
 
   let featured = null
   async function featuredList() {
-    if (!featured) featured = typeof cfg.featured === 'string' ? await (await fetch(cfg.featured)).json() : cfg.featured
+    if (!featured) featured = typeof cfg.featured === 'string' ? await getJson(cfg.featured) : cfg.featured
     return featured
   }
   let recent = null
@@ -38,7 +45,7 @@ export function registryPanel({ cfg, ui, onPick, linkOf, onAdd, onRender = () =>
     const all = []
     let cursor = ''
     for (let i = 0; i < 3; i++) {
-      const json = await (await fetch(cfg.registry + '?version=latest&limit=100&updated_since=' + encodeURIComponent(since) + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''))).json()
+      const json = await getJson(cfg.registry + '?version=latest&limit=100&updated_since=' + encodeURIComponent(since) + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''))
       all.push(...(json.servers || []))
       cursor = json.metadata && json.metadata.nextCursor
       if (!cursor) break
@@ -53,16 +60,17 @@ export function registryPanel({ cfg, ui, onPick, linkOf, onAdd, onRender = () =>
 
   async function search() {
     const q = input.value.trim()
-    const searching = q.length >= 2
+    /* The registry refuses a search under three characters (422), so shorter text keeps the list as it is. */
+    const searching = q.length >= 3
     const mine = ++seq
     for (const b of chips.children) { const on = !searching && b.dataset.filter === filter; b.classList.toggle('is-on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false') }
     note.textContent = searching ? '' : filter === 'recent' ? ui.regRecent : ui.regKnown
     more.hidden = true
-    list.replaceChildren(h('p', { class: 'mcpi-hint is-shown', text: ui.asking }))
+    list.replaceChildren(h('p', { class: 'mcpi-hint is-shown mcpi-busy', text: ui.asking }))
     onRender()
     let cards = []
     try {
-      if (searching) cards = registryCards((await (await fetch(cfg.registry + '?version=latest&limit=40&search=' + encodeURIComponent(q))).json()).servers)
+      if (searching) cards = registryCards((await getJson(cfg.registry + '?version=latest&limit=40&search=' + encodeURIComponent(q))).servers)
       else if (filter === 'recent') cards = await recentServers()
       else cards = featuredFor(filter, await featuredList())
     } catch (e) {
@@ -83,7 +91,8 @@ export function registryPanel({ cfg, ui, onPick, linkOf, onAdd, onRender = () =>
   input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(search, 300) })
 
   const el = h('section', { class: 'mcpi-registry' },
-    h('p', { class: 'mcpi-label' }, 'MCP Registry ', note), h('div', { class: 'mcpi-reg-bar' }, input, chips), list, more)
+    /* Says whose list this is: the official registry, linked, unless the page set another one. */
+    h('p', { class: 'mcpi-label' }, cfg.registry === REGISTRY ? h('a', { href: 'https://registry.modelcontextprotocol.io', target: '_blank', rel: 'noopener', class: 'mcpi-reg-source', text: ui.regOfficial }) : 'MCP Registry', ' ', note), h('div', { class: 'mcpi-reg-bar' }, input, chips), list, more)
   function first() {
     if (!firstKnown) return null
     const i = [...list.children].findIndex((w) => w.dataset && w.dataset.url === firstKnown.url)

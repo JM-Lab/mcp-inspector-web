@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { STRINGS, clientsFor, slugOf, fromRegistry, ICONS, isMobileDevice, worksOnPhone, initialsOf, hueOf } from '../src/add-to-ai.js'
+import { STRINGS, clientsFor, slugOf, fromRegistry, ICONS, isMobileDevice, hasShareSheet, passOn, worksOnPhone, initialsOf, hueOf } from '../src/add-to-ai.js'
 
 const by = (server) => Object.fromEntries(clientsFor(server).map((x) => [x.id, x]))
 const by2 = (server, opts) => Object.fromEntries(clientsFor(server, opts).map((x) => [x.id, x]))
@@ -231,6 +231,31 @@ test('isMobileDevice: phones and tablets, from Client Hints or the user agent', 
   assert.equal(isMobileDevice({ userAgent: mac, maxTouchPoints: 5 }), true, 'an iPad reports itself as a Mac with touch')
   assert.equal(isMobileDevice({ userAgent: mac, maxTouchPoints: 0 }), false)
   assert.equal(isMobileDevice({ userAgent: windows, userAgentData: { mobile: false } }), false)
+})
+
+test('hasShareSheet and passOn: a phone with a share sheet shares a link, everything else copies it', async () => {
+  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'
+  const windows = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36'
+  const share = async () => {}
+  assert.equal(hasShareSheet({ userAgent: iphone, share }), true)
+  assert.equal(hasShareSheet({ userAgent: iphone }), false, 'no share sheet in this browser')
+  assert.equal(hasShareSheet({ userAgent: windows, share }), false, 'a computer copies, even with a share sheet')
+  assert.equal(hasShareSheet({ userAgent: windows, share }, true), true, 'unless told it is a phone')
+  const nav = (shareImpl?: (d: ShareData) => Promise<void>) => {
+    const log: string[] = []
+    return { log, nav: { share: shareImpl && (async (d: ShareData) => { log.push('share ' + JSON.stringify(d)); await shareImpl(d) }), clipboard: { writeText: async (t: string) => { log.push('copy ' + t) } } } as unknown as Navigator }
+  }
+  let n = nav(async () => {})
+  assert.equal(await passOn('https://a.example/?s=x', true, n.nav), 'shared')
+  assert.deepEqual(n.log, ['share {"url":"https://a.example/?s=x"}'], 'only the link: no token, no other text')
+  n = nav(async () => { throw new DOMException('closed', 'AbortError') })
+  assert.equal(await passOn('https://a.example/', true, n.nav), 'cancelled')
+  assert.deepEqual(n.log.length, 1, 'closing the share sheet copies nothing')
+  n = nav(async () => { throw new DOMException('no', 'NotAllowedError') })
+  assert.equal(await passOn('https://a.example/', true, n.nav), 'copied', 'a share sheet that fails falls back to copying')
+  n = nav(async () => {})
+  assert.equal(await passOn('https://a.example/', false, n.nav), 'copied')
+  assert.deepEqual(n.log, ['copy https://a.example/'])
 })
 
 test('worksOnPhone: only the chat apps, set up on their websites; every computer client links to where to get it', () => {

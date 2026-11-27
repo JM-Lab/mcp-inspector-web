@@ -183,7 +183,7 @@ export function mount(root, options) {
       el.select.replaceChildren()
       const c = conn()
       /* A failure is said once, in the notice under the server's name. */
-      el.pane.replaceChildren(h('p', { class: 'mcpi-empty', text: c.state === 'connecting' ? ui.connecting : ui.empty }))
+      el.pane.replaceChildren(h('p', { class: 'mcpi-empty' + (c.state === 'connecting' ? ' mcpi-busy' : ''), text: c.state === 'connecting' ? ui.connecting : ui.empty }))
       return
     }
     const wanted = keep != null ? all.findIndex((x) => nameOf(x) === keep) : -1
@@ -239,7 +239,7 @@ export function mount(root, options) {
     }
     /* logging/setLevel is of the 2025 revisions only; the modern one has no such request. */
     el.level.hidden = !(c.state === 'connected' && info && info.capabilities && info.capabilities.logging && info.era !== 'modern')
-    ping.title = c.state === 'connected' && info && info.era === 'modern' ? ui.pingModern : ''
+    ping.title = c.state === 'connected' && info && info.era === 'modern' ? ui.pingModern : ping.querySelector('span').textContent
     /* A server that once asked for authentication keeps its OAuth button (if it vanished after a failed OAuth, nobody would know what happened). */
     if (c.needAuth) current.wantsAuth = true
     const wants = c.needAuth || current.wantsAuth
@@ -272,7 +272,7 @@ export function mount(root, options) {
    * Under each client it offers both links to pass on: the inspector link, and the connect link (the same with &to=<client>:
    * open it, test it, and come back to that client). No token in either.
    */
-  const addTo = (s, extra) => openAddToAi({ url: s.url, name: s.name, id: s.id, headers: s.headers, authHeader: s.authHeader, hint: s.hint, oauth: !!s.wantsAuth && !s.headers }, Object.assign({ shareLink: (c) => { const link = shareLink(s.key ? s : { custom: true, id: s.id, url: s.url, hint: s.hint }); return [{ url: link, label: ui.testLink, hint: ui.copyLink, icon: 'flask' }, link + '&to=' + c.id] }, lang: cfg.lang, ui: cfg.addToAiUi, root }, extra))
+  const addTo = (s, extra) => openAddToAi({ url: s.url, name: s.name, id: s.id, headers: s.headers, authHeader: s.authHeader, hint: s.hint, oauth: !!s.wantsAuth && !s.headers }, Object.assign({ shareLink: (c) => { const link = shareLink(s.key ? s : { custom: true, id: s.id, url: s.url, hint: s.hint }); return [{ url: link, label: ui.testLink, hint: ui.copyLink, sheetHint: ui.shareLinkTip, icon: 'flask' }, link + '&to=' + c.id] }, lang: cfg.lang, ui: cfg.addToAiUi, root }, extra))
   /* Redrawn only when the link changes, so an open box stays open. */
   function renderShare() {
     const link = shareLink(current)
@@ -483,18 +483,20 @@ export function mount(root, options) {
   })
 
   /* Ping, Reconnect and the logging level, next to the server name. */
-  const reconnect = iconButton('refresh', 'Reconnect', { class: 'mcpi-btn' })
+  const reconnect = iconButton('refresh', 'Reconnect', { class: 'mcpi-btn' }, { compact: true })
   reconnect.addEventListener('click', () => reopen(current))
-  const ping = iconButton('pulse', 'Ping', { class: 'mcpi-btn' })
+  const ping = iconButton('pulse', 'Ping', { class: 'mcpi-btn' }, { compact: true })
   ping.addEventListener('click', async () => {
     const c = conn()
     ping.disabled = true
+    ping.setAttribute('aria-busy', 'true')
     try {
       if (c.state !== 'connected') await connect(current, true)
       await c.send('ping')
-      setLabel(ping, 'Ping ' + c.lastMs + ' ms')
-    } catch (e) { setLabel(ping, 'Ping failed') }
+      setLabel(ping, 'Ping ' + c.lastMs + ' ms', null, { keep: true })
+    } catch (e) { setLabel(ping, 'Ping failed', null, { keep: true }) }
     ping.disabled = false
+    ping.removeAttribute('aria-busy')
     renderHead()
   })
   el.level.addEventListener('change', async () => {

@@ -9,9 +9,10 @@
  *   /modern-mcp                 2026-07-28 only: server/discover, no initialize, no session
  *   /both-mcp                   both: 2026-07-28 to a client that asks, the 2025 way (stateless) to one that does not
  *   /rev-2025-06-18-mcp, /rev-2025-03-26-mcp   the 2025 way, at that older revision only
+ *   /rich-mcp                   the 2025 way, plus a resource template and resource subscriptions
  */
 import http from 'node:http'
-import { McpServer, WebStandardStreamableHTTPServerTransport, completable, createMcpHandler, inputRequired } from '@modelcontextprotocol/server'
+import { McpServer, ResourceTemplate, WebStandardStreamableHTTPServerTransport, completable, createMcpHandler, inputRequired } from '@modelcontextprotocol/server'
 import { z } from 'zod/v4'
 
 
@@ -19,8 +20,8 @@ import { z } from 'zod/v4'
  * versions: the revisions it answers initialize with (an older server). shared: what outlives one request where every
  * request gets a server of its own (the 2026-07-28 way): whether add_tool was run, and how to tell the listeners.
  */
-function makeServer({ versions, shared }: { versions?: string[], shared?: { added: boolean, changed: () => void } } = {}) {
-  const s = new McpServer({ name: 'mcpi-test', version: '0.0.1' }, { capabilities: { logging: {}, tools: { listChanged: true } }, instructions: 'test instructions', ...(versions ? { supportedProtocolVersions: versions } : {}) })
+function makeServer({ versions, shared, rich }: { versions?: string[], shared?: { added: boolean, changed: () => void }, rich?: boolean } = {}) {
+  const s = new McpServer({ name: 'mcpi-test', version: '0.0.1' }, { capabilities: { logging: {}, tools: { listChanged: true }, ...(rich ? { resources: { subscribe: true } } : {}) }, instructions: 'test instructions', ...(versions ? { supportedProtocolVersions: versions } : {}) })
   const added = () => s.registerTool('added', { description: 'new', inputSchema: z.object({}) }, async () => ({ content: [{ type: 'text', text: 'hi' }] }))
   if (shared && shared.added) added()
   s.registerTool('echo', { description: 'echo', inputSchema: z.object({ text: z.string() }) }, async ({ text }) => ({ content: [{ type: 'text', text }] }))
@@ -45,6 +46,12 @@ function makeServer({ versions, shared }: { versions?: string[], shared?: { adde
   })
   s.registerPrompt('greet', { description: 'completion', argsSchema: z.object({ lang: completable(z.string(), (v) => ['korean', 'english'].filter((x) => x.startsWith(v))) }) }, ({ lang }) => ({ messages: [{ role: 'user', content: { type: 'text', text: 'hello in ' + lang } }] }))
   s.registerResource('clock', 'test://clock', { description: 'read' }, async (uri) => ({ contents: [{ uri: uri.href, text: 'tick' }] }))
+  if (rich) {
+    /* A template to fill in (test://item/{id}), and subscriptions the server takes and lets go of. */
+    s.registerResource('item', new ResourceTemplate('test://item/{id}', { list: undefined }), { description: 'one item' }, async (uri, { id }) => ({ contents: [{ uri: uri.href, text: 'item ' + id }] }))
+    s.server.setRequestHandler('resources/subscribe', async () => ({}))
+    s.server.setRequestHandler('resources/unsubscribe', async () => ({}))
+  }
   return s
 }
 
@@ -139,7 +146,7 @@ export async function startMcpServer({ cors = false } = {}) {
       const made = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => crypto.randomUUID(), onsessioninitialized: (id) => { sessions.set(id, made) } })
       t = made
       const rev = /^\/rev-(\d{4}-\d\d-\d\d)-mcp$/.exec(path)
-      await makeServer(rev ? { versions: [rev[1]] } : {}).connect(t)
+      await makeServer(rev ? { versions: [rev[1]] } : { rich: path === '/rich-mcp' }).connect(t)
     }
     await pipe(req, res, await t.handleRequest(request))
   })

@@ -64,7 +64,7 @@ test('mergeQuery: replaces only the keys this page owns', () => {
 })
 
 test('registryEntry: one server by name', () => {
-  assert.equal(registryEntry('https://registry.modelcontextprotocol.io/v0/servers', 'io.github.x/y'), 'https://registry.modelcontextprotocol.io/v0/servers/io.github.x%2Fy/versions/latest')
+  assert.equal(registryEntry('https://registry.modelcontextprotocol.io/v0.1/servers', 'io.github.x/y'), 'https://registry.modelcontextprotocol.io/v0.1/servers/io.github.x%2Fy/versions/latest')
 })
 
 test('handoffStore: &to= waits for its own server, once, and survives an OAuth return only when restored', () => {

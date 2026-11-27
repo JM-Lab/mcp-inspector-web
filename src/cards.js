@@ -4,7 +4,7 @@
  *   cardOf(server, { ui, onOpen, onRemove, link, onAdd })   a pressable card, with × for servers kept in this browser
  *   cardTools(link, onAdd, ui)                  the small buttons on a card, which never open it:
  *                                               copy the link that opens it here, and add it to an AI client (add-to-ai.js)
- *   shareBox(link, ui, onAdd)                   what the open server's Share box holds: the link to copy, and the AI client button
+ *   shareBox(link, ui, onAdd)                   what the open server's Share box holds: the link to copy (on a phone, to share), and the AI client button
  */
 import { h, copyButton, iconButton } from './dom.js'
 import { hostOf, iconCandidates, countsText } from './lib.js'
@@ -46,7 +46,7 @@ export function cardTools(link, onAdd, ui) {
   return h('span', { class: 'mcpi-card-tools' },
     onAdd ? h('button', { type: 'button', class: 'mcpi-card-ai', title: ui.addAiTip, 'aria-label': ui.addAiTip, onclick: (e) => { e.stopPropagation(); onAdd() } }, lineIcon('ai', 15), h('span', { text: ui.addAiShort })) : null,
     /* The inspector link, named so on the button: an icon alone does not say that it copies a link to this inspector. */
-    link ? copyButton(link, { label: () => h('span', { class: 'mcpi-card-share-in' }, lineIcon('flask', 14), h('span', { text: ui.testLink })), copied: () => h('span', { class: 'mcpi-card-share-in' }, lineIcon('check', 14), h('span', { text: ui.copied })), cls: 'mcpi-card-share', title: ui.copyLink }) : null)
+    link ? copyButton(link, { label: () => h('span', { class: 'mcpi-card-share-in' }, lineIcon('flask', 14), h('span', { text: ui.testLink })), copied: () => h('span', { class: 'mcpi-card-share-in' }, lineIcon('check', 14), h('span', { text: ui.copied })), cls: 'mcpi-card-share', title: ui.copyLink, share: { title: ui.shareLinkTip } }) : null)
 }
 
 export function cardOf(s, { ui, onOpen, onRemove, link, onAdd }) {
@@ -65,7 +65,7 @@ export function shareBox(link, ui, onAdd) {
     h('p', { class: 'mcpi-label mcpi-share-kind' }, lineIcon('flask', 14), h('span', { text: ui.shareLink })),
     h('div', { class: 'mcpi-share-row' },
       h('input', { type: 'text', readonly: true, value: link, class: 'mcpi-share-link', 'aria-label': ui.shareLink, onfocus: (e) => e.target.select() }),
-      copyButton(link, { label: () => lineIcon('copy'), copied: () => lineIcon('check'), cls: 'mcpi-btn mcpi-copy mcpi-icon-btn', title: ui.copy })),
+      copyButton(link, { label: () => lineIcon('copy'), copied: () => lineIcon('check'), cls: 'mcpi-btn mcpi-copy mcpi-icon-btn', title: ui.copy, share: { label: () => lineIcon('share'), title: ui.shareIt } })),
     h('p', { class: 'mcpi-hint is-shown', text: ui.shareNote }),
     /* The connect link goes on to an AI client, so it is copied under the client picked in the popup. */
     h('p', { class: 'mcpi-label mcpi-share-kind' }, lineIcon('plug', 14), h('span', { text: ui.addAi })),

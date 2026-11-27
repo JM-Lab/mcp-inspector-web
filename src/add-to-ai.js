@@ -45,11 +45,11 @@
  */
 
 import { STRINGS } from './add-to-ai-strings.js'
-import { REGISTRY_API, fromRegistry, slugOf, ICONS, GROUPS, clientsFor, worksOnPhone, isMobileDevice, hostOf, withAddress, headerOf, secretOf } from './add-to-ai-clients.js'
+import { REGISTRY_API, fromRegistry, slugOf, ICONS, GROUPS, clientsFor, worksOnPhone, isMobileDevice, hasShareSheet, passOn, hostOf, withAddress, headerOf, secretOf } from './add-to-ai-clients.js'
 import { addStyle } from './add-to-ai-style.js'
 import { initialsOf, hueOf } from './initials.js'
 
-export { STRINGS, REGISTRY_API, fromRegistry, slugOf, ICONS, GROUPS, clientsFor, worksOnPhone, isMobileDevice, initialsOf, hueOf }
+export { STRINGS, REGISTRY_API, fromRegistry, slugOf, ICONS, GROUPS, clientsFor, worksOnPhone, isMobileDevice, hasShareSheet, passOn, initialsOf, hueOf }
 
 /* ---- The popup. Plain DOM, no module of the inspector. ---- */
 
@@ -118,6 +118,7 @@ const LINES = {
   close: ['M6 6l12 12', 'M18 6L6 18'],
   copy: ['M9 9h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1z', 'M16 5V4a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h1'],
   check: ['M5 12.5l4.5 4.5L19 7.5'],
+  share: ['M12 15V3', 'M8 7l4-4 4 4', 'M8 11H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-2'],
   retry: ['M20 12a8 8 0 1 1-2.34-5.66', 'M20 4v4h-4'],
   external: ['M14 4h6v6', 'M20 4l-9 9', 'M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5'],
   /* A plug with a spark in it: the connect link. A flask: a link to a page where the server can be tried (the inspector's own). */
@@ -149,6 +150,8 @@ export function openAddToAi(server, opts = {}) {
   const t = stringsOf(opts)
   const fill = (s, v = {}) => s.replace(/\{(\w+)\}/g, (m, k) => (v[k] != null ? v[k] : m))
   const mobile = opts.mobile != null ? !!opts.mobile : isMobileDevice()
+  /* On a phone the links made here open the share sheet, to send them in a chat app; elsewhere they are copied. */
+  const sheet = hasShareSheet(typeof navigator !== 'undefined' ? navigator : {}, mobile)
   const hasSecret = !!secretOf(server)
   let withSecret = hasSecret && opts.secret !== false
   let clients = clientsFor(server, { secret: withSecret })
@@ -171,12 +174,18 @@ export function openAddToAi(server, opts = {}) {
   /* The buttons under a client's way to add it: an icon and a word, all the same quiet size. */
   const act = (tag, icon, text, attrs = {}) => el(tag, Object.assign({}, attrs, { class: ('mcpi-addto-go is-quiet ' + (attrs.class || '')).trim() }), lineIcon(icon), el('span', { text }))
   const newTab = (href, cls) => ({ href, target: '_blank', rel: 'noopener', class: cls })
-  /* A button that copies a link, says Copied with a check for a moment, and explains in its tooltip what the link is. */
-  const copyAct = (icon, text, value, hint, cls) => {
-    const b = act('button', icon, text, { type: 'button', class: cls, 'data-copy': value, title: hint })
+  /*
+   * A button that passes a link on and explains in its tooltip what the link is: copied, saying Copied with a check for a moment,
+   * or on a phone sent through the share sheet (sheetHint is then its tooltip).
+   */
+  const copyAct = (icon, text, value, hint, cls, sheetHint) => {
+    const b = act('button', icon, text, { type: 'button', class: cls, 'data-copy': value, 'data-share': sheet ? '' : null, title: sheet ? sheetHint || hint : hint })
     b.addEventListener('click', async () => {
       const word = b.querySelector('span')
-      try { await navigator.clipboard.writeText(value); b.replaceChildren(lineIcon('check'), el('span', { text: t.copied })); b.classList.add('is-done') } catch (e) { return }
+      let r
+      try { r = await passOn(value, sheet) } catch (e) { return }
+      if (r !== 'copied') return
+      b.replaceChildren(lineIcon('check'), el('span', { text: t.copied })); b.classList.add('is-done')
       setTimeout(() => { b.replaceChildren(lineIcon(icon), word); b.classList.remove('is-done') }, 1500)
     })
     return b
@@ -189,9 +198,9 @@ export function openAddToAi(server, opts = {}) {
    */
   const shared = (c) => {
     const got = typeof opts.shareLink === 'function' ? opts.shareLink(c) : null
-    /* One link (the connect link), or several, each { url, label?, hint?, icon? } with icon one of plug, flask, copy. */
+    /* One link (the connect link), or several, each { url, label?, hint?, icon? } with icon one of plug, flask, copy, and sheetHint, its tooltip where it opens the share sheet. */
     return [].concat(got || []).map((x) => (typeof x === 'string' ? { url: x } : x)).filter((x) => x && x.url).map((x) =>
-      copyAct(LINES[x.icon] ? x.icon : 'plug', x.label || fill(t.shareThis, { v: c.label }), x.url, x.hint || fill(t.shareThisHint, { v: c.label }), 'mcpi-addto-share is-' + (LINES[x.icon] ? x.icon : 'plug')))
+      copyAct(LINES[x.icon] ? x.icon : 'plug', x.label || fill(t.shareThis, { v: c.label }), x.url, x.hint || fill(t.shareThisHint, { v: c.label }), 'mcpi-addto-share is-' + (LINES[x.icon] ? x.icon : 'plug'), x.sheetHint || fill(t.shareThisSheet, { v: c.label })))
   }
 
   function detail(c) {
@@ -216,7 +225,9 @@ export function openAddToAi(server, opts = {}) {
          * When nothing does within a few seconds, the app is likely missing: say so and open the by-hand setup.
          * A web page link (Kiro, Visual Studio, Replit) opens a tab that hands on to the app, so there is nothing to watch.
          */
-        openLink.addEventListener('click', () => { missed.hidden = true; if (!web) watchOpen(() => { missed.hidden = false; manual.open = true }) })
+        /* Only the latest press may say that nothing opened: an earlier press's wait must not bring the notice back over a new try. */
+        let tries = 0
+        openLink.addEventListener('click', () => { const mine = ++tries; missed.hidden = true; if (!web) watchOpen(() => { if (mine === tries) { missed.hidden = false; manual.open = true } }) })
       }
       out.push(away ? null : el('p', { class: 'mcpi-addto-hint', text: fill(t.linkHint, { v: c.label }) }),
         c.secretInLink && !away ? el('p', { class: 'mcpi-addto-note', 'data-warn': 'link-secret', text: fill(t.linkSecret, { v: c.label }) }) : null, missed, manual)
@@ -241,7 +252,7 @@ export function openAddToAi(server, opts = {}) {
      * or else, with none given, the client's install link itself (never when it holds your token).
      */
     const share = shared(c)
-    const install = !share.length && c.kind === 'link' && !c.secretInLink && !(mobile && !worksOnPhone(c)) ? copyAct('copy', t.copyInstall, c.link, fill(t.copyInstallHint, { v: c.label }), 'mcpi-addto-install') : null
+    const install = !share.length && c.kind === 'link' && !c.secretInLink && !(mobile && !worksOnPhone(c)) ? copyAct('copy', t.copyInstall, c.link, fill(t.copyInstallHint, { v: c.label }), 'mcpi-addto-install', fill(t.shareInstallHint, { v: c.label })) : null
     const row = [openLink, settings, getBtn(c), ...share, install].filter(Boolean)
     if (row.length) out.push(el('div', { class: 'mcpi-addto-row mcpi-addto-acts' }, row))
     return out
@@ -387,8 +398,10 @@ export function addToAiButton(server, opts = {}) {
     if (server.url) { openAddToAi(server, opts); return }
     /* Given by registry name alone: look it up on the first press. */
     b.disabled = true
+    b.setAttribute('aria-busy', 'true')
     say(t.loading)
     try { server = await withAddress(server, opts); b.disabled = false; say(opts.label || t.button); openAddToAi(server, opts) } catch (err) { say(err.inactive ? t.inactive : t.notFound) }
+    b.removeAttribute('aria-busy')
   })
   return b
 }
@@ -416,7 +429,7 @@ export function defineAddToAi(tag = 'mcp-add-to-ai') {
       const t = stringsOf(opts)
       addStyle()
       this.dataset.state = 'loading'
-      this.replaceChildren(trigger(t.loading, { class: 'mcpi-addto-trigger', disabled: true }))
+      this.replaceChildren(trigger(t.loading, { class: 'mcpi-addto-trigger', disabled: true, 'aria-busy': 'true' }))
       try {
         const found = await fromRegistry(given.id, opts)
         if (mine !== this.seq) return

@@ -27,7 +27,7 @@ function renderParts(box, result) {
 export function output(ui) {
   const body = h('div', { class: 'mcpi-res', tabindex: '0' })
   const note = h('span')
-  const toggle = iconButton('braces', 'JSON', { class: 'mcpi-json', 'aria-pressed': 'false' })
+  const toggle = iconButton('braces', 'JSON', { class: 'mcpi-json', 'aria-pressed': 'false' }, { compact: true })
   const el = h('div', { class: 'mcpi-out', hidden: true }, h('div', { class: 'mcpi-out-bar' }, note, toggle), body)
   let cur = null
   const paint = () => {
@@ -40,8 +40,8 @@ export function output(ui) {
   toggle.addEventListener('click', () => { toggle.setAttribute('aria-pressed', toggle.getAttribute('aria-pressed') === 'true' ? 'false' : 'true'); if (cur) paint() })
   return {
     el,
-    show(o) { cur = o; el.hidden = false; note.textContent = o.ms != null ? o.ms + ' ms' : ''; paint(); body.scrollTop = 0; if (o.reveal) el.scrollIntoView({ block: 'nearest' }) },
-    busy() { el.hidden = false; note.textContent = ui.asking },
+    show(o) { cur = o; el.hidden = false; note.classList.remove('mcpi-busy'); note.textContent = o.ms != null ? o.ms + ' ms' : ''; paint(); body.scrollTop = 0; if (o.reveal) el.scrollIntoView({ block: 'nearest' }) },
+    busy() { el.hidden = false; note.classList.add('mcpi-busy'); note.textContent = ui.asking },
     progress(p) { note.textContent = ui.asking + ' ' + (p.total ? p.progress + ' / ' + p.total : p.progress) + (p.message ? ' · ' + p.message : '') },
   }
 }

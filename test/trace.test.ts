@@ -533,7 +533,7 @@ test('failureText and the strings: a sentence for every hint, in both languages,
   assert.deepEqual(failureText({ step: 'token', seq: 1, hint: { code: 'oauthError', status: 400, error: 'invalid_grant', description: '' } }, { lang: 'en' }),
     { title: 'OAuth stopped at step 7, Token exchange.', detail: 'The server answered 400: invalid_grant.' })
   assert.deepEqual(failureText({ seq: 1, hint: { code: 'cors', host: 'a.example' } }, { lang: 'ko' }),
-    { title: '연결하지 못했습니다.', detail: 'a.example 서버는 응답하지만 이 페이지의 요청을 허락하지 않습니다 (CORS).' })
+    { title: '연결하지 못했습니다.', detail: 'a.example 서버는 응답하지만 이 페이지의 요청을 허용하지 않습니다 (CORS).' })
   assert.equal(failureText({ seq: 1, hint: { code: 'cors', host: 'a.example' } }, { ui: { failed: 'Nope', hints: { cors: 'blocked: {host}' } } })!.detail, 'blocked: a.example', 'any string can be replaced')
   assert.equal(failureText(null), null)
   /* Every hint code the judge can give has a sentence. */

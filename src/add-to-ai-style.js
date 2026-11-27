@@ -67,6 +67,9 @@ const CSS = `.mcpi-addto,.mcpi-addto-trigger{--a-ink:var(--mcpi-ink,#16181d);--a
 .mcpi-addto-manual[open]{display:grid;gap:.4rem}
 .mcpi-addto-copy.is-icon{width:36px;padding:0;display:grid;place-items:center;border-radius:999px}
 .mcpi-addto-copy.is-icon.is-done{color:var(--mcpi-accent3,#2e7d4f);border-color:var(--mcpi-accent3,#2e7d4f)}
+@keyframes mcpi-addto-spin{to{transform:rotate(360deg)}}
+.mcpi-addto-trigger[aria-busy=true]>svg{display:none}
+.mcpi-addto-trigger[aria-busy=true]::before{content:'';width:.8rem;height:.8rem;box-sizing:border-box;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:mcpi-addto-spin .7s linear infinite}
 .mcpi-addto-trigger{display:inline-flex;align-items:center;gap:.4rem;min-height:36px;padding:0 .9rem 0 .7rem;border:1px solid var(--a-rule);border-radius:999px;background:var(--a-card);color:var(--a-ink);font:inherit;font-size:.8rem;font-weight:800;cursor:pointer}
 .mcpi-addto-trigger:hover{background:var(--a-tint)}
 .mcpi-addto-trigger:disabled{opacity:.6;cursor:default}`

@@ -5,7 +5,7 @@
 
 /* ---- The MCP Registry: a server by its name alone. ---- */
 
-export const REGISTRY_API = 'https://registry.modelcontextprotocol.io/v0/servers'
+export const REGISTRY_API = 'https://registry.modelcontextprotocol.io/v0.1/servers'
 const looked = new Map()
 
 /*
@@ -296,4 +296,19 @@ export function isMobileDevice(nav = typeof navigator !== 'undefined' ? navigato
   const ua = nav.userAgent || ''
   if (/Android|iPhone|iPad|iPod|Mobile|Windows Phone|Silk|Kindle/i.test(ua)) return true
   return /Macintosh/.test(ua) && (nav.maxTouchPoints || 0) > 1
+}
+
+/* A phone or tablet with a share sheet (navigator.share), where a link is better sent to a chat app than copied. */
+export const hasShareSheet = (nav = typeof navigator !== 'undefined' ? navigator : {}, mobile = isMobileDevice(nav)) => !!mobile && typeof nav.share === 'function'
+
+/*
+ * Passes a link on: through the share sheet when sheet is true, otherwise to the clipboard. Answers 'shared', 'copied',
+ * or 'cancelled' when the share sheet was closed without sending. A share sheet that fails for another reason falls back to copying.
+ */
+export async function passOn(url, sheet, nav = typeof navigator !== 'undefined' ? navigator : {}) {
+  if (sheet) {
+    try { await nav.share({ url }); return 'shared' } catch (e) { if (e && e.name === 'AbortError') return 'cancelled' }
+  }
+  await nav.clipboard.writeText(url)
+  return 'copied'
 }

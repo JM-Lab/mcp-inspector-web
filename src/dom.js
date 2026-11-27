@@ -1,5 +1,6 @@
 /* Small DOM helpers shared by the UI modules. */
 import { lineIcon } from './icons.js'
+import { hasShareSheet, passOn } from './add-to-ai-clients.js'
 
 /** Makes an element. attrs: class, text, on<event> handlers, anything else as an attribute (true is an empty attribute, null and false are left out). */
 export function h(tag, attrs, ...kids) {
@@ -30,27 +31,41 @@ export function linkify(pre, text) {
  * A button that says what it does with an icon and a word, the one style for every action button.
  * setLabel changes the word (and the icon, if given) without losing the other.
  */
-export function iconButton(icon, text, attrs = {}) {
-  return h('button', Object.assign({ type: 'button' }, attrs), lineIcon(icon, 15), h('span', { text }))
+export function iconButton(icon, text, attrs = {}, { compact = false } = {}) {
+  /*
+   * compact: where space is short (a phone), only the icon shows, for a button its icon says plainly (Ping, Reconnect, JSON, Cancel,
+   * Subscribe). The word stays for screen readers and in the tooltip.
+   */
+  const b = h('button', Object.assign({ type: 'button' }, attrs, compact ? { class: ((attrs.class || '') + ' is-compact').trim(), title: text } : {}), lineIcon(icon, 15), h('span', { text }))
+  return b
 }
-export function setLabel(b, text, icon) {
+/** keep: show the word even on a compact button, for a word that is news (Ping's time). */
+export function setLabel(b, text, icon, { keep = false } = {}) {
   b.querySelector('span').textContent = text
+  if (b.classList.contains('is-compact')) { b.title = text; b.classList.toggle('is-said', keep) }
   if (icon) b.querySelector('svg').replaceWith(lineIcon(icon, 15))
 }
 
 /**
  * Copies text when pressed and says so on the button for a moment (label, then copied, or ✕ when the browser refuses).
  * The text is also kept in data-copy, so it can be read where the clipboard is not available.
+ * share: the text is a link to pass on. On a phone with a share sheet, pressing opens the share sheet instead,
+ * and the button is drawn with share.label (when given) and named share.title.
  */
-export function copyButton(text, { label, copied, cls = 'mcpi-btn mcpi-copy', title } = {}) {
-  const b = h('button', { type: 'button', class: cls, 'data-copy': text, title, 'aria-label': title })
+export function copyButton(text, { label, copied, cls = 'mcpi-btn mcpi-copy', title, share } = {}) {
+  const sheet = !!share && hasShareSheet()
+  const name = sheet ? share.title : title
+  const b = h('button', { type: 'button', class: cls, 'data-copy': text, 'data-share': sheet, title: name, 'aria-label': name })
   /* label and copied: text, or a function that draws an icon (the words then go in the tooltip). */
   const show = (v) => { const x = typeof v === 'function' ? v() : v; if (typeof x === 'string') b.textContent = x; else b.replaceChildren(x) }
-  const idle = () => label
+  const idle = () => (sheet && share.label) || label
   show(idle())
   b.addEventListener('click', async (e) => {
     e.stopPropagation()
-    try { await navigator.clipboard.writeText(text); show(copied); b.classList.add('is-done') } catch (err) { show('✕') }
+    let r
+    try { r = share ? await passOn(text, sheet) : (await navigator.clipboard.writeText(text), 'copied') } catch (err) { r = 'failed' }
+    if (r === 'shared' || r === 'cancelled') return
+    if (r === 'copied') { show(copied); b.classList.add('is-done') } else show('✕')
     setTimeout(() => { show(idle()); b.classList.remove('is-done') }, 1500)
   })
   return b

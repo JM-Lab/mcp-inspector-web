@@ -75,7 +75,10 @@ before(async () => {
     if (path === '/mcp-inspector.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(js); return }
     if (path.startsWith('/registry/')) {
       const name = decodeURIComponent(path.replace('/registry/v0/servers/', '').replace('/versions/latest', ''))
-      const body = path === '/registry/v0/servers' ? { servers: full.searchParams.get('search') ? found : [], metadata: {} } : registry[name as keyof typeof registry]
+      const q = full.searchParams.get('search')
+      if (path === '/registry/v0/servers' && q === 'fail') { res.writeHead(500); res.end('{}'); return }
+      const many = Array.from({ length: 8 }, (_, i) => ({ server: { name: 'io.test/many-' + i, title: 'Many ' + i, remotes: [{ type: 'streamable-http', url: 'https://many' + i + '.example/mcp' }] } }))
+      const body = path === '/registry/v0/servers' ? { servers: q === 'many' ? many : q ? found : [], metadata: {} } : registry[name as keyof typeof registry]
       res.writeHead(body ? 200 : 404, { 'content-type': 'application/json' }); res.end(JSON.stringify(body || { error: 'not found' })); return
     }
     if (path === '/lib.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(lib); return }
@@ -91,9 +94,10 @@ before(async () => {
 })
 after(async () => {
   if (skip) return
-  await b?.close()
+  /* The servers first, so nothing keeps the process alive even if closing Chrome fails. */
   page?.close()
   mcp?.close()
+  await b?.close()
 })
 
 test('browser: the page against a local server, as a person uses it', { skip, timeout: 120000 }, async (t) => {
@@ -133,8 +137,17 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
   await t.test('a long request shows progress and can be cancelled', async () => {
     await b.run(`$t.pick('slow'); $t.set($t.field('steps'), '50'); $t.run()`)
     await b.until(`/Asking… \\d+ \\/ 50/.test($t.note())`)
+    /* While it waits, a spinner turns: in place of the Run icon, and before "Asking…". */
+    const spin = (sel: string) => `getComputedStyle(document.querySelector('${sel}'), '::before').animationName`
+    assert.equal(await b.run(`document.querySelector('.mcpi-pane .mcpi-run').getAttribute('aria-busy')`), 'true')
+    assert.equal(await b.run(spin('.mcpi-pane .mcpi-run')), 'mcpi-spin')
+    assert.equal(await b.run(`getComputedStyle(document.querySelector('.mcpi-pane .mcpi-run svg')).display`), 'none')
+    assert.equal(await b.run(spin('.mcpi-pane .mcpi-out-bar span')), 'mcpi-spin')
     await b.run(`$t.button('Cancel', document.querySelector('.mcpi-pane')).click()`)
     await b.until(`$t.out() === 'Cancelled'`)
+    /* Done: the spinners stop and the icon is back. */
+    assert.equal(await b.run(`document.querySelector('.mcpi-pane .mcpi-run').hasAttribute('aria-busy')`), false)
+    assert.equal(await b.run(spin('.mcpi-pane .mcpi-out-bar span')), 'none')
   })
 
   await t.test('a prompt gets completion suggestions and runs', async () => {
@@ -196,10 +209,14 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     await b.run(`$t.tab('Tools').click()`)
     /* The tabs too: each has its icon before its name. */
     assert.deepEqual(await b.run(`[...document.querySelectorAll('.mcpi-tab')].map((x) => !!x.querySelector('svg') && x.textContent.trim().split(/\\s|\\d/)[0])`), ['Tools', 'Prompts', 'Resources', 'Debug'])
-    /* On a phone the four tabs still fit their row, none cut off or scrolled away. */
-    await b.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 780, deviceScaleFactor: 1, mobile: true })
+    /* On a phone the four tabs still fit their row, none cut off or scrolled away. (mobile: false keeps the 360px layout: the test page has no viewport tag.) */
+    await b.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 780, deviceScaleFactor: 1, mobile: false })
     await new Promise((r) => setTimeout(r, 100))
     assert.equal(await b.run(`(() => { const t = document.querySelector('.mcpi-tabs'); return t.scrollWidth <= t.clientWidth && [...t.children].every((x) => x.getBoundingClientRect().right <= t.getBoundingClientRect().right + 1) })()`), true)
+    /* There, a button whose icon says it alone shows only the icon, its word kept in the tooltip and for screen readers. */
+    assert.deepEqual(await b.run(`['Ping', 'Reconnect'].map((w) => { const x = [...document.querySelectorAll('.mcpi button.is-compact')].find((y) => y.textContent.startsWith(w)); x.classList.remove('is-said'); const s = x.querySelector('span').getBoundingClientRect(); return [w, x.title.startsWith(w), s.width <= 1, x.getBoundingClientRect().width < 60] })`),
+      [['Ping', true, true, true], ['Reconnect', true, true, true]])
+    assert.ok(await b.run(`$t.button('Run').querySelector('span').getBoundingClientRect().width > 10`), 'Run keeps its word')
     await b.send('Emulation.clearDeviceMetricsOverride')
   })
 
@@ -406,6 +423,42 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.equal(mid.note, 'This server speaks revision 2025-06-18, an older one. Everything this inspector does works with it.')
   })
 
+  await t.test('on a phone with a share sheet, the links open it instead of being copied', async () => {
+    const desktopUa = await b.run('navigator.userAgent')
+    /* An iPhone, and a share sheet that records what it was given (headless Chrome has none). */
+    await b.send('Emulation.setUserAgentOverride', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' })
+    const { identifier } = await b.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.$shared = []; navigator.share = async (d) => { window.$shared.push(d) }` })
+    try {
+      await open('?r=io.test/local')
+      await b.until(`$t.status() === 'Connected'`)
+      await b.run(`document.querySelector('.mcpi-share').open = true`)
+      const box = `document.querySelector('.mcpi-share .mcpi-copy')`
+      assert.equal(await b.run(`${box}.title + '|' + ${box}.hasAttribute('data-share') + '|' + ${box}.querySelectorAll('svg path').length`), 'Share|true|3', 'a share icon, named Share')
+      await b.run(`${box}.click()`)
+      await b.until(`window.$shared.length === 1`, 2000)
+      assert.deepEqual(await b.run(`window.$shared[0]`), { url: origin + '/?r=io.test/local' })
+      assert.equal(await b.run(`${box}.classList.contains('is-done')`), false, 'nothing says Copied')
+      assert.match(await b.run(`document.querySelector('.mcpi-card-share').title`), /^Share inspector link/)
+      assert.equal(await b.run(`document.querySelector('.mcpi-card-share').textContent`), 'Inspector link', 'the card button keeps its words')
+      await b.run(`document.querySelector('.mcpi-share .mcpi-add-ai').click()`)
+      await b.run(`document.querySelector('.mcpi-addto-tile[data-client=claude]').click()`)
+      const plug = `document.querySelector('.mcpi-addto-share.is-plug')`
+      assert.match(await b.run(`${plug}.title`), /^Share the connect link/)
+      await b.run(`${plug}.click()`)
+      await b.until(`window.$shared.length === 2`, 2000)
+      assert.deepEqual(await b.run(`window.$shared[1]`), { url: origin + '/?r=io.test/local&to=claude' })
+      await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+      await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+    } finally {
+      await b.send('Page.removeScriptToEvaluateOnNewDocument', { identifier })
+      await b.send('Emulation.setUserAgentOverride', { userAgent: desktopUa })
+    }
+    /* On a computer the same buttons copy, as before. */
+    await open('?r=io.test/local')
+    await b.until(`$t.status() === 'Connected'`)
+    assert.equal(await b.run(`document.querySelector('.mcpi-share .mcpi-copy').title + '|' + document.querySelector('.mcpi-share .mcpi-copy').hasAttribute('data-share')`), 'Copy|false')
+  })
+
   await t.test('a registry link opens that server, and the share box offers the same link and the AI button', async () => {
     await open('?r=io.test/local')
     await b.until(`$t.status() === 'Connected'`)
@@ -483,6 +536,106 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.equal(await b.run(`el.childElementCount + '|' + el.classList.contains('mcpi') + '|' + (el.inspector === null)`), '0|false|true')
   })
 
+  await t.test('a resource template is filled in and read, and a resource is subscribed to and let go', async () => {
+    await open('?u=' + mcp.base + '/rich-mcp')
+    await b.until(`$t.status() === 'Connected'`)
+    assert.equal(await b.run(`$t.count('Resources')`), 2, 'the resource and the template')
+    await b.run(`$t.tab('Resources').click(); [...document.querySelectorAll('.mcpi-pick')].find((x) => x.textContent.includes('item')).click()`)
+    await b.run(`$t.set($t.field('id'), '7'); $t.run()`)
+    await b.until(`$t.out().includes('item 7')`)
+    await b.run(`[...document.querySelectorAll('.mcpi-pick')].find((x) => x.textContent === 'clock').click()`)
+    const sub = `[...document.querySelectorAll('.mcpi-pane .mcpi-btn')].find((x) => /subscribe/i.test(x.textContent))`
+    assert.equal(await b.run(sub + '.textContent'), 'Subscribe')
+    await b.run(sub + '.click()')
+    await b.until(sub + `.textContent === 'Unsubscribe' && ${sub}.getAttribute('aria-pressed') === 'true'`)
+    await b.run(sub + '.click()')
+    await b.until(sub + `.textContent === 'Subscribe'`)
+  })
+
+  await t.test('a form says what is wrong before sending, an answer shows as JSON, and the log level is set', async () => {
+    await open('?s=local')
+    await b.until(`$t.status() === 'Connected'`)
+    await b.run(`$t.pick('slow'); $t.set($t.field('steps'), 'abc'); $t.run()`)
+    assert.equal(await b.run(`$t.field('steps').closest('.mcpi-field').classList.contains('is-bad')`), true, 'a number field with text is flagged')
+    assert.equal(await b.run(`$t.out()`), '', 'and nothing is sent')
+    await b.run(`$t.pick('echo'); $t.set($t.field('text'), 'json please'); $t.run()`)
+    await b.until(`$t.out().includes('json please')`)
+    await b.run(`document.querySelector('.mcpi-pane .mcpi-json').click()`)
+    assert.equal(await b.run(`document.querySelector('.mcpi-pane .mcpi-json').getAttribute('aria-pressed')`), 'true')
+    assert.match(await b.run(`$t.out()`), /"type": "text"/, 'the whole answer, as JSON')
+    await b.run(`(() => { const l = document.querySelector('.mcpi-level'); l.value = 'error'; l.dispatchEvent(new Event('change')) })()`)
+    await b.run(`$t.tab('Debug').click()`)
+    await b.until(`[...document.querySelectorAll('.mcpi-dbg-rows *')].some((x) => x.textContent.includes('logging/setLevel'))`, 4000)
+  })
+
+  await t.test('example chips fill in a tool form', async () => {
+    await b.go(origin + '/lib.html')
+    await b.run(HELPERS)
+    const servers = [{ key: 'ex', name: 'Examples', url: mcp.base + '/mcp', examples: [{ tool: 'echo', args: { text: 'from a chip' }, label: { en: 'Say it', ko: '말하기' } }] }]
+    await b.run(`window.inst = MCPI.mount(document.querySelector('#x'), { registry: null, servers: ${JSON.stringify(servers)}, syncUrl: false }); true`)
+    await b.until(`$t.status() === 'Connected'`)
+    await b.run(`$t.pick('echo')`)
+    const chip = `[...document.querySelectorAll('.mcpi-examples .mcpi-chip')].find((x) => x.textContent === 'Say it')`
+    await b.run(chip + '.click()')
+    assert.equal(await b.run(`$t.field('text').value + '|' + ${chip}.classList.contains('is-on')`), 'from a chip|true')
+    await b.run(`inst.destroy(); true`)
+  })
+
+  await t.test('the registry list shows more on request, and says when the registry does not answer', async () => {
+    await open()
+    const search = (q: string) => b.run(`(() => { const i = document.querySelector('.mcpi-reg-bar input'); i.value = '${q}'; i.dispatchEvent(new Event('input')) })()`)
+    await search('many')
+    await b.until(`document.querySelectorAll('.mcpi-reg').length === 8`, 4000)
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-reg-list .mcpi-card-wrap[hidden]').length + '|' + document.querySelector('.mcpi-reg-more').hidden`), '2|false', 'six shown, two more behind the button')
+    await b.run(`document.querySelector('.mcpi-reg-more').click()`)
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-reg-list .mcpi-card-wrap[hidden]').length + '|' + document.querySelector('.mcpi-reg-more').hidden`), '0|true')
+    await search('fail')
+    await b.until(`document.querySelector('.mcpi-reg-list').textContent.includes('The request failed') && !document.querySelector('.mcpi-reg')`, 4000)
+    /* Under three characters the registry answers 422, so the registry is not asked and the panel shows its usual list. */
+    await search('ma')
+    await b.until(`!document.querySelector('.mcpi-reg-list').textContent.includes('The request failed')`, 4000)
+    assert.equal(await b.run(`performance.getEntriesByType('resource').some((e) => /[?&]search=ma(&|$)/.test(e.name))`), false, 'two characters asked nothing')
+  })
+
+  await t.test('coming back from authorization with no sign-in on record says so', async () => {
+    await b.run(`localStorage.removeItem('mcpi:oauth'); true`)
+    await open('?code=stray&state=x')
+    await b.until(`document.querySelector('.mcpi-notice')`, 4000)
+    assert.match(await b.run(`document.querySelector('.mcpi-notice').textContent`), /Returned from OAuth/)
+    assert.equal(await b.run('location.search'), '', 'the code is taken out of the address')
+  })
+
+  await t.test('copy buttons put the text on the clipboard and say so', async () => {
+    await b.send('Browser.grantPermissions', { origin, permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] })
+    /* The clipboard answers only a page that has focus, which a headless page does not have unless told. */
+    await b.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+    await open('?s=local')
+    await b.until(`$t.status() === 'Connected'`)
+    /* The debugger copies what it shows, message content left out unless asked. */
+    await b.run(`$t.tab('Debug').click()`)
+    await b.run(`document.querySelector('.mcpi-dbg-copy').click()`)
+    await b.until(`document.querySelector('.mcpi-dbg-copy').classList.contains('is-done')`, 3000)
+    const plain = await b.run(`navigator.clipboard.readText()`)
+    assert.ok(plain.includes('tools/list'), plain.slice(0, 200))
+    await b.run(`(() => { const c = document.querySelector('.mcpi-dbg-check input'); c.click() })()`)
+    assert.equal(await b.run(`!document.querySelector('.mcpi-dbg-note').hidden`), true, 'ticking it says what message content can hold')
+    await b.until(`!document.querySelector('.mcpi-dbg-copy').classList.contains('is-done')`, 3000)
+    await b.run(`document.querySelector('.mcpi-dbg-copy').click()`)
+    await b.until(`document.querySelector('.mcpi-dbg-copy').classList.contains('is-done')`, 3000)
+    const full = await b.run(`navigator.clipboard.readText()`)
+    assert.ok(full.length > plain.length && full.includes('"tools"'), 'with message content: the answers too')
+    /* The popup's copy button and link buttons. */
+    await b.run(`document.querySelector('.mcpi-server[data-key=local]').closest('.mcpi-card-wrap').querySelector('.mcpi-card-ai').click()`)
+    await b.run(`document.querySelector('.mcpi-addto-tile[data-client=claude-code]').click()`)
+    await b.run(`document.querySelector('.mcpi-addto-detail .mcpi-addto-copy').click()`)
+    await b.until(`document.querySelector('.mcpi-addto-detail .mcpi-addto-copy').classList.contains('is-done')`, 3000)
+    assert.match(await b.run(`navigator.clipboard.readText()`), /^claude mcp add --transport http /)
+    await b.run(`document.querySelector('.mcpi-addto-share.is-plug').click()`)
+    await b.until(`document.querySelector('.mcpi-addto-share.is-plug').classList.contains('is-done')`, 3000)
+    assert.equal(await b.run(`navigator.clipboard.readText()`), origin + '/?s=local&to=claude-code')
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+  })
+
   await t.test('mount returns destroy, which closes its connections and empties the element', async () => {
     await b.go(origin + '/lib.html')
     await b.run(HELPERS)
@@ -494,6 +647,20 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     /* Mounted again on the same element, it starts fresh. */
     await b.run(`window.inst = MCPI.mount(document.querySelector('#x'), { registry: null, servers: [{ key: 'local', name: 'Local', url: ${JSON.stringify(mcp.base + '/mcp')} }], syncUrl: false, openFirst: false }); true`)
     assert.equal(await b.run(`document.querySelectorAll('#x .mcpi-server').length >= 1 && document.querySelector('.mcpi-main').hidden`), true)
+    await b.run(`inst.destroy(); true`)
+  })
+
+  await t.test('the registry panel says its list comes from the Official MCP Registry, and links to it; another registry is not called official', async () => {
+    await b.go(origin + '/lib.html')
+    /* No outside network: the registry is not asked here, only named. */
+    await b.run(`window.fetch = () => Promise.reject(new TypeError('offline')); true`)
+    await b.run(`window.inst = MCPI.mount(document.querySelector('#x'), { syncUrl: false, openFirst: false }); true`)
+    assert.deepEqual(await b.run(`(() => { const a = document.querySelector('.mcpi-registry .mcpi-reg-source'); return [a.textContent, a.href, a.target] })()`),
+      ['From the Official MCP Registry', 'https://registry.modelcontextprotocol.io/', '_blank'])
+    await b.run(`inst.destroy(); window.inst = MCPI.mount(document.querySelector('#x'), { lang: 'ko', syncUrl: false, openFirst: false }); true`)
+    assert.equal(await b.run(`document.querySelector('.mcpi-reg-source').textContent`), '공식 MCP 레지스트리에서')
+    await b.run(`inst.destroy(); window.inst = MCPI.mount(document.querySelector('#x'), { registry: '/registry/v0.1/servers', syncUrl: false, openFirst: false }); true`)
+    assert.equal(await b.run(`!document.querySelector('.mcpi-reg-source') && document.querySelector('.mcpi-registry .mcpi-label').textContent.startsWith('MCP Registry')`), true)
     await b.run(`inst.destroy(); true`)
   })
 
@@ -605,6 +772,16 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
   })
 
   await t.test('the AI component on a page of its own: one click where the client allows, steps where it does not', async () => {
+    /* A button given by registry name alone looks the server up on the first press, and says when it is not there. */
+    await b.go(origin + '/add-to-ai.html')
+    await b.run(`(() => { const x = MCPAddToAI.addToAiButton({ id: 'io.test/nothing' }, { registryApi: '/registry/v0/servers' }); x.id = 'byid-missing'; document.body.append(x); const y = MCPAddToAI.addToAiButton({ id: 'io.test/docs' }, { registryApi: '/registry/v0/servers', mobile: false }); y.id = 'byid-found'; document.body.append(y) })()`)
+    await b.run(`document.querySelector('#byid-missing').click()`)
+    await b.until(`document.querySelector('#byid-missing').textContent === 'Not in the MCP Registry'`, 4000)
+    await b.run(`document.querySelector('#byid-found').click()`)
+    await b.until(`document.querySelector('dialog.mcpi-addto h2')?.textContent === 'Add Docs from the registry to an AI client'`, 4000)
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+
     await b.go(origin + '/add-to-ai.html')
     assert.equal(await b.run(`document.querySelector('#open button').textContent`), 'Add to an AI client')
     assert.equal(await b.run(`document.querySelector('#ko button').textContent`), 'AI 클라이언트에 추가', 'lang="ko"')
@@ -706,7 +883,7 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
      * opens the link again, copies it to send, and goes to the client's website.
      */
     const away = `document.querySelector('.mcpi-addto-detail .mcpi-addto-away')`
-    assert.match(await b.run(away + '.textContent'), /open it first, then press Try again/)
+    assert.match(await b.run(away + '.textContent'), /needs VS Code installed and running\. 1\) If it is not installed, get it from its website below\. 2\) Open VS Code, then press Try again/)
     assert.equal(await b.run(`[...document.querySelectorAll('.mcpi-addto-detail .mcpi-addto-acts > *')].map((x) => x.className.replace('mcpi-addto-go is-quiet ', '') + ':' + x.textContent + ':' + !!x.querySelector('svg')).join()`),
       'mcpi-addto-open:Try again:true,mcpi-addto-get:VS Code website:true,mcpi-addto-install:Install link:true')
     assert.match(await b.run(`document.querySelector('.mcpi-addto-install').dataset.copy`), /^vscode:mcp\/install\?/)
@@ -819,6 +996,28 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     await b.run(`document.querySelector('.mcpi-addto-search').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))`)
     assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail').dataset.client`), 'kiro')
     assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail a.mcpi-addto-open').target`), '_blank', 'a web install link opens in a new tab')
+    /*
+     * Every link that leaves for a website opens in a new tab, so the page and its connection stay: a client's site, its settings page,
+     * a web install page. An app link (vscode:, cursor://, …) is not a page, so it has no target and no tab is left behind.
+     */
+    await find('')
+    const stray = await b.run(`(() => {
+      const press = HTMLAnchorElement.prototype.click
+      HTMLAnchorElement.prototype.click = function () {}
+      const bad = []
+      let web = 0, app = 0
+      for (const tile of document.querySelectorAll('.mcpi-addto-tile')) {
+        tile.click()
+        for (const a of document.querySelectorAll('dialog.mcpi-addto a[href]')) {
+          const http = /^https?:/.test(a.getAttribute('href'))
+          if (http) web++; else app++
+          if (http ? a.target !== '_blank' || !/noopener/.test(a.rel) : a.target === '_blank') bad.push(tile.dataset.client + ' ' + a.getAttribute('href').slice(0, 40))
+        }
+      }
+      HTMLAnchorElement.prototype.click = press
+      return { bad, web: web > 44, app: app >= 5 }
+    })()`)
+    assert.deepEqual(stray, { bad: [], web: true, app: true })
     assert.deepEqual(await find('nothing like this'), [])
     assert.equal(await b.run(`document.querySelector('.mcpi-addto-groups + .mcpi-addto-hint').hidden`), false)
     await b.run(`document.querySelector('dialog.mcpi-addto').close()`)

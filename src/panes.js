@@ -20,10 +20,11 @@ export function panes(ctx) {
   /* While a request runs, Cancel stands next to the button. It makes the SDK send notifications/cancelled. */
   async function call(out, btn, method, params) {
     btn.disabled = true
+    btn.setAttribute('aria-busy', 'true')
     out.busy()
     const c = ctx.conn()
     const ac = new AbortController()
-    const stop = iconButton('stop', 'Cancel', { class: 'mcpi-btn', onclick: () => ac.abort() })
+    const stop = iconButton('stop', 'Cancel', { class: 'mcpi-btn', onclick: () => ac.abort() }, { compact: true })
     btn.after(stop)
     try {
       if (c.state !== 'connected') await ctx.connect(ctx.current(), true)
@@ -34,6 +35,7 @@ export function panes(ctx) {
     }
     stop.remove()
     btn.disabled = false
+    btn.removeAttribute('aria-busy')
     ctx.renderHead()
   }
 
@@ -138,14 +140,16 @@ export function panes(ctx) {
     } else {
       run.addEventListener('click', () => call(out, run, 'resources/read', { uri: r.uri }))
       if (caps.resources && caps.resources.subscribe) {
-        sub = iconButton(c.subs.has(r.uri) ? 'bellOff' : 'bell', c.subs.has(r.uri) ? 'Unsubscribe' : 'Subscribe', { class: 'mcpi-btn', 'aria-pressed': c.subs.has(r.uri) ? 'true' : 'false' })
+        sub = iconButton(c.subs.has(r.uri) ? 'bellOff' : 'bell', c.subs.has(r.uri) ? 'Unsubscribe' : 'Subscribe', { class: 'mcpi-btn', 'aria-pressed': c.subs.has(r.uri) ? 'true' : 'false' }, { compact: true })
         sub.addEventListener('click', async () => {
           sub.disabled = true
+          sub.setAttribute('aria-busy', 'true')
           try {
             if (c.state !== 'connected') await ctx.connect(ctx.current(), true)
             await c.send(c.subs.has(r.uri) ? 'resources/unsubscribe' : 'resources/subscribe', { uri: r.uri })
           } catch (e) { out.show({ error: ctx.explain(e) }) }
           sub.disabled = false
+          sub.removeAttribute('aria-busy')
           setLabel(sub, c.subs.has(r.uri) ? 'Unsubscribe' : 'Subscribe', c.subs.has(r.uri) ? 'bellOff' : 'bell')
           sub.setAttribute('aria-pressed', c.subs.has(r.uri) ? 'true' : 'false')
         })
