@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # The client and server SDKs move together; the server one is only used by the tests.
+      mcp-sdk:
+        patterns: ['@modelcontextprotocol/*']
+      dev:
+        dependency-type: development
+        exclude-patterns: ['@modelcontextprotocol/*']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

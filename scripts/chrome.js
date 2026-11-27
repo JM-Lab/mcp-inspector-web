@@ -38,6 +38,11 @@ export function findChrome() {
 
 /* Linux CI runners (GitHub's Ubuntu 24.04) block the user namespaces Chrome's sandbox needs. Only there is it turned off. */
 const SANDBOX = process.env.CI && process.platform === 'linux' ? ['--no-sandbox'] : []
+/*
+ * No back-forward cache: on Linux it keeps a page the tests left with its MCP event streams open, and once six of them hold
+ * a host's connections, the next page's requests to that host wait for good.
+ */
+const NO_BFCACHE = ['--disable-features=BackForwardCache']
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -45,7 +50,7 @@ export async function openChrome({ width = 1200, height = 900, scale = 1 } = {})
   const bin = findChrome()
   if (!bin) throw new Error('No Chrome found. Set CHROME to its path.')
   const profile = mkdtempSync(join(tmpdir(), 'mcpi-chrome-'))
-  const chrome = spawn(bin, ['--headless=new', '--remote-debugging-port=0', '--user-data-dir=' + profile, '--no-first-run', '--no-default-browser-check', '--hide-scrollbars', '--lang=en-US', ...SANDBOX, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] })
+  const chrome = spawn(bin, ['--headless=new', '--remote-debugging-port=0', '--user-data-dir=' + profile, '--no-first-run', '--no-default-browser-check', '--hide-scrollbars', '--lang=en-US', ...NO_BFCACHE, ...SANDBOX, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] })
   /* Chrome prints the DevTools address on stderr once it listens. */
   const wsBrowser = await new Promise((resolve, reject) => {
     let text = ''
@@ -146,7 +151,8 @@ export async function openChrome({ width = 1200, height = 900, scale = 1 } = {})
       const exited = new Promise((r) => chrome.once('exit', r))
       chrome.kill()
       await exited
-      rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+      /* Chrome's helper processes on Linux can still be writing to the profile; a temp folder left behind is no reason to fail. */
+      try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }) } catch {}
     },
   }
 }

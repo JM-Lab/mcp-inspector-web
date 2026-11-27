@@ -1,0 +1,23 @@
+name: Close pull requests
+
+# Pull requests are not accepted (see CONTRIBUTING.md). Dependabot's and the owner's are left open.
+# pull_request_target runs with the base repository's permissions, so this job never checks out or runs the pull request's code.
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  close:
+    if: github.event.pull_request.user.login != github.repository_owner && github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          gh pr close "$PR" --repo "$REPO" --comment "Thanks for the interest. This project does not accept pull requests (see CONTRIBUTING.md). Please report bugs as issues and share ideas in Discussions. Under the MIT license you are welcome to keep this change in your fork."
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
