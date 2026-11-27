@@ -92,3 +92,11 @@ test('featured: lookup keeps the active entry of that exact name; opens checks a
     assert.equal(await opens('http://127.0.0.1:1/none', 'https://example.com'), false, 'no server is not an error')
   } finally { server.close() }
 })
+
+test('every bundle starts with the MIT notice, since a bundle is often copied on its own', async () => {
+  const { readFileSync } = await import('node:fs')
+  for (const f of ['dist/mcp-inspector.js', 'dist/mcp-add-to-ai.js', 'dist/mcp-inspector.css']) {
+    const head = readFileSync(new URL('../' + f, import.meta.url), 'utf8').slice(0, 300)
+    assert.match(head, /^\/\*! mcp-inspector-web \d+\.\d+\.\d+ \| MIT License \| Copyright \(c\) 2026 Jemin Huh/, f)
+  }
+})

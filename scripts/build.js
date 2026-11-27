@@ -5,6 +5,7 @@
  *   dist/mcp-add-to-ai.js                 IIFE, the add-to-AI-client component alone: <mcp-add-to-ai> (src/add-to-ai-auto.js)
  *   dist/THIRD-PARTY-LICENSES.txt      the license of every package bundled into mcp-inspector.js
  * The bundle carries the MCP SDK and what it depends on, so their license texts ship next to it.
+ * Each file starts with this project's copyright and MIT notice.
  */
 import { build } from 'esbuild'
 import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
@@ -12,7 +13,13 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const common = { bundle: true, minify: true, legalComments: 'none', logLevel: 'info' }
+const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+/*
+ * MIT asks that the copyright and license notice go with every copy. A bundle is often copied on its own (from a CDN),
+ * so each one starts with that notice; the bundled packages' own notices are in THIRD-PARTY-LICENSES.txt next to it.
+ */
+const notice = `/*! ${pkg.name} ${pkg.version} | MIT License | Copyright (c) 2026 Jemin Huh | https://github.com/JM-Lab/mcp-inspector-web | bundled packages: THIRD-PARTY-LICENSES.txt */`
+const common = { bundle: true, minify: true, legalComments: 'none', logLevel: 'info', banner: { js: notice, css: notice } }
 const js = await build({ ...common, entryPoints: [join(root, 'src/auto.js')], outfile: join(root, 'dist/mcp-inspector.js'), format: 'iife', platform: 'browser', target: ['es2020', 'safari16'], metafile: true })
 await build({ ...common, entryPoints: [join(root, 'src/style.css')], outfile: join(root, 'dist/mcp-inspector.css') })
 await build({ ...common, entryPoints: [join(root, 'src/add-to-ai-auto.js')], outfile: join(root, 'dist/mcp-add-to-ai.js'), format: 'iife', platform: 'browser', target: ['es2020', 'safari16'] })
