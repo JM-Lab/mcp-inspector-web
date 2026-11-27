@@ -250,3 +250,8 @@ test('the page carries nothing site specific', () => {
     assert.ok(!/aljal/i.test(src), f + ' mentions a site')
   }
 })
+
+test('isPrivateAddress: this computer and private networks, which a link must not make the page call by itself', () => {
+  for (const u of ['http://localhost:3000/mcp', 'http://app.localhost/mcp', 'http://127.0.0.1:8080/mcp', 'https://10.1.2.3/mcp', 'http://172.16.0.1/mcp', 'http://172.31.255.1/mcp', 'http://192.168.0.10/mcp', 'http://169.254.1.1/mcp', 'http://printer.local/mcp', 'http://[::1]:9000/mcp', 'http://[fd00::1]/mcp', 'http://0.0.0.0/mcp']) assert.equal(lib.isPrivateAddress(u), true, u)
+  for (const u of ['https://example.com/mcp', 'https://172.32.0.1/mcp', 'https://11.0.0.1/mcp', 'https://localhost.example.com/mcp', 'not a url']) assert.equal(lib.isPrivateAddress(u), false, u)
+})

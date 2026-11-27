@@ -12,6 +12,7 @@ import { z } from 'zod/v4'
 function makeServer() {
   const s = new McpServer({ name: 'mcpi-test', version: '0.0.1' }, { capabilities: { logging: {}, tools: { listChanged: true } }, instructions: 'test instructions' })
   s.registerTool('echo', { description: 'echo', inputSchema: z.object({ text: z.string() }) }, async ({ text }) => ({ content: [{ type: 'text', text }] }))
+  s.registerTool('wipe', { description: 'destructive', inputSchema: z.object({}), annotations: { destructiveHint: true } }, async () => ({ content: [{ type: 'text', text: 'wiped' }] }))
   s.registerTool('ask_name', { description: 'elicitation', inputSchema: z.object({}) }, async (_a, ctx) => {
     const r = await ctx.mcpReq.elicitInput({ message: 'What is your name?', requestedSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } })
     return { content: [{ type: 'text', text: JSON.stringify(r) }] }

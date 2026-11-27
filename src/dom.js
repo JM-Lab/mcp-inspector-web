@@ -31,8 +31,9 @@ export function linkify(pre, text) {
  */
 export function copyButton(text, { label, copied, cls = 'mcpi-btn mcpi-copy', title } = {}) {
   const b = h('button', { type: 'button', class: cls, 'data-copy': text, title, 'aria-label': title })
-  const show = (v) => { if (typeof v === 'string') b.textContent = v; else b.replaceChildren(v) }
-  const idle = () => (typeof label === 'function' ? label() : label)
+  /* label and copied: text, or a function that draws an icon (the words then go in the tooltip). */
+  const show = (v) => { const x = typeof v === 'function' ? v() : v; if (typeof x === 'string') b.textContent = x; else b.replaceChildren(x) }
+  const idle = () => label
   show(idle())
   b.addEventListener('click', async (e) => {
     e.stopPropagation()
@@ -40,6 +41,16 @@ export function copyButton(text, { label, copied, cls = 'mcpi-btn mcpi-copy', ti
     setTimeout(() => { show(idle()); b.classList.remove('is-done') }, 1500)
   })
   return b
+}
+
+/*
+ * The last item on the same grid row as `item` (items laid out in a CSS grid, some maybe hidden), so that something
+ * placed after it opens right under that row, across the whole width. Rows are known only once the grid is shown.
+ */
+export function rowEnd(item, skip) {
+  let last = item
+  for (const x of item.parentElement.children) if (x !== skip && !x.hidden && x.offsetTop === item.offsetTop) last = x
+  return last
 }
 
 /* Labels sit above inputs. A placeholder alone disappears as soon as you type. */

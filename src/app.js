@@ -18,7 +18,7 @@
  */
 import { Conn } from './conn.js'
 import { STRINGS } from './strings.js'
-import { h, linkify, labeled } from './dom.js'
+import { rowEnd, h, linkify, labeled } from './dom.js'
 import { oauthStore } from './oauth.js'
 import { form } from './form.js'
 import { panes } from './panes.js'
@@ -26,7 +26,7 @@ import { cardOf, shareBox } from './cards.js'
 import { registryPanel } from './registry.js'
 import { linkOf, readLink, registryEntry, mergeQuery, handoffStore } from './share.js'
 import { openAddToAi } from './add-to-ai.js'
-import { CAP, REGISTRY, STORE_PREFIX, hostOf, cleanUrl, pushFront, filled, loadStore, saveStore, explainError, registryCard, isActive } from './lib.js'
+import { CAP, REGISTRY, STORE_PREFIX, hostOf, cleanUrl, isPrivateAddress, pushFront, filled, loadStore, saveStore, explainError, registryCard, isActive } from './lib.js'
 
 const TABS = [['tools', 'Tools'], ['prompts', 'Prompts'], ['resources', 'Resources'], ['history', 'History']]
 const LEVELS = ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency']
@@ -202,8 +202,12 @@ export function mount(root, options) {
    */
   const pageUrl = () => cfg.pageUrl || location.origin + location.pathname
   const shareLink = (s) => pageUrl() + linkOf(s)
-  /* The server as you set it up here, token included: the popup puts it in what you copy (and can take it out). */
-  const addTo = (s, extra) => openAddToAi({ url: s.url, name: s.name, id: s.id, headers: s.headers, authHeader: s.authHeader, hint: s.hint, oauth: !!s.wantsAuth && !s.headers }, Object.assign({ lang: cfg.lang, ui: cfg.addToAiUi, root }, extra))
+  /*
+   * The server as you set it up here, token included: the popup puts it in what you copy (and can take it out).
+   * Under each client it offers both links to pass on: the inspector link, and the connect link (the same with &to=<client>:
+   * open it, test it, and come back to that client). No token in either.
+   */
+  const addTo = (s, extra) => openAddToAi({ url: s.url, name: s.name, id: s.id, headers: s.headers, authHeader: s.authHeader, hint: s.hint, oauth: !!s.wantsAuth && !s.headers }, Object.assign({ shareLink: (c) => { const link = shareLink(s.key ? s : { custom: true, id: s.id, url: s.url, hint: s.hint }); return [{ url: link, label: ui.testLink, hint: ui.copyLink, icon: 'flask' }, link + '&to=' + c.id] }, lang: cfg.lang, ui: cfg.addToAiUi, root }, extra))
   /* Redrawn only when the link changes, so an open box stays open. */
   function renderShare() {
     const link = shareLink(current)
@@ -235,12 +239,16 @@ export function mount(root, options) {
     }
   }
 
-  async function select(server) {
+  /* wrap: the card pressed, when it was pressed in the registry list (the inspector opens under it there). */
+  async function select(server, wrap, quiet, hold) {
     current = server
+    pressed = wrap || null
     if (!conns[server.key]) conns[server.key] = newConn(server)
-    if (cfg.syncUrl) setQuery(linkOf(server))
+    if (cfg.syncUrl && !quiet) setQuery(linkOf(server))
     renderHead()
+    placeMain()
     selectTab('tools')
+    if (hold) return
     if (conns[server.key].state === 'idle' || conns[server.key].state === 'failed') {
       const had = itemsOf('tools').length
       try {
@@ -259,7 +267,25 @@ export function mount(root, options) {
     if (current === s) { renderHead(); selectTab(tab, el.pane.dataset.item) }
   }
 
-  /* Servers are laid out as cards. Pressing one opens its inspector below. */
+  /*
+   * Servers are laid out as cards. Pressing one opens its inspector right under that card's row, across the whole row:
+   * in the person's own cards, or in the registry list when it was pressed there.
+   * Rows depend on the width and lists are drawn again, so it is placed again after each of those.
+   */
+  let pressed = null
+  function placeMain() {
+    const ownCard = current && [...el.servers.querySelectorAll('.mcpi-server')].find((b) => b.dataset.key === current.key)
+    const wrap = pressed && pressed.isConnected && !pressed.hidden ? pressed : ownCard ? ownCard.closest('.mcpi-card-wrap') : null
+    /* A registry card it opened under is marked as the open one, like the person's own cards. */
+    for (const r of root.querySelectorAll('.mcpi-reg')) r.classList.toggle('is-on', !main.hidden && r.parentElement === wrap)
+    if (!wrap) { if (main.previousElementSibling !== el.servers) el.servers.after(main); return }
+    const last = rowEnd(wrap, main)
+    if (last.nextElementSibling !== main) last.after(main)
+  }
+  let placing = 0
+  const onResize = () => { cancelAnimationFrame(placing); placing = requestAnimationFrame(placeMain) }
+  window.addEventListener('resize', onResize)
+
   function renderServers() {
     const card = (s) => cardOf(s, { ui, onOpen: open, onRemove: remove, link: shareLink(s), onAdd: addTo })
     const group = (label, list, extra) => [h('p', { class: 'mcpi-label' }, label, list.length && list[0].custom ? h('span', { text: ' ' + list.length + ' / ' + CAP }) : null), extra, list.length ? h('div', { class: 'mcpi-cards' }, list.map(card)) : null]
@@ -269,6 +295,7 @@ export function mount(root, options) {
       ...group(ui.mine, ofKind('mine'), addForm),
       ...(recent.length ? group(ui.recent, recent) : [])].filter(Boolean))
     if (current) renderHead()
+    placeMain()
   }
   function reveal(always, instant) {
     const top = main.getBoundingClientRect().top
@@ -286,7 +313,22 @@ export function mount(root, options) {
     reveal(true, true)
     Promise.resolve(ready).catch(() => {}).then(() => requestAnimationFrame(() => { if (!moved && current) reveal(true, true) }))
   }
-  function open(s) { select(s); reveal(true) }
+  function open(s, wrap) { select(s, wrap); reveal(true) }
+
+  /*
+   * One server is always open. With nothing else to open (no link, or the open one was removed), open the next saved server,
+   * else the first well-known one, quietly: no scrolling, and the address stays as it is. options.openFirst: false turns it off.
+   */
+  function openDefault(not) {
+    if (current || cfg.openFirst === false) return
+    const next = servers.find((x) => x.url !== not)
+    const f = registry && registry.first()
+    /* Arriving with nothing to open: the first well-known server. After removing the open one: the next saved one. */
+    if (f && f.card.url !== not && (!not || !next)) {
+      const s = add(f.card.url, 'recent', cardMeta(f.card))
+      if (s) select(s, f.wrap && f.wrap.isConnected ? f.wrap : null, true)
+    } else if (next) select(next, null, true)
+  }
 
   function forget(s) {
     if (conns[s.key]) conns[s.key].close()
@@ -301,10 +343,12 @@ export function mount(root, options) {
       main.hidden = true
       setQuery('')
     }
+    const none = !current
     forget(s)
     servers = servers.filter((x) => x !== s)
     save()
     renderServers()
+    if (none) openDefault(s.url)
   }
 
   /*
@@ -402,7 +446,7 @@ export function mount(root, options) {
   el.auth.append(authNote, h('p', { class: 'mcpi-label', text: 'OAuth' }), signIn, h('p', { class: 'mcpi-label', text: ui.token }), tForm)
 
   const cardMeta = (c) => ({ id: c.id, name: c.name, desc: c.desc, icon: c.icon, web: c.web, hint: c.hint, hintValue: c.hintValue })
-  const registry = cfg.registry ? registryPanel({ cfg, ui, linkOf: (c) => shareLink({ custom: true, id: c.id, url: c.url }), onAdd: (c) => addTo(Object.assign({}, cardMeta(c), { url: c.url })), onPick: (c) => open(add(c.url, 'recent', cardMeta(c))) }) : null
+  const registry = cfg.registry ? registryPanel({ cfg, ui, linkOf: (c) => shareLink({ custom: true, id: c.id, url: c.url }), onAdd: (c) => addTo(Object.assign({}, cardMeta(c), { url: c.url })), onPick: (c, wrap) => open(add(c.url, 'recent', cardMeta(c)), wrap), onRender: () => placeMain() }) : null
 
   main.append(
     h('div', { class: 'mcpi-top' },
@@ -410,7 +454,7 @@ export function mount(root, options) {
       h('div', { class: 'mcpi-top-actions' }, el.status, el.level, ping, reconnect)),
     el.info, el.auth, el.share, el.instr, el.asks, el.tabs,
     h('div', { class: 'mcpi-body' }, el.list, el.select, el.pane))
-  root.replaceChildren(el.servers, ...(registry ? [registry.el] : []), main)
+  root.replaceChildren(el.servers, main, ...(registry ? [registry.el] : []))
   renderServers()
   const regReady = registry ? registry.search() : Promise.resolve()
 
@@ -436,6 +480,7 @@ export function mount(root, options) {
     /* Back from authorization with no record of starting (another browser, or over 30 minutes). Say so instead of doing nothing. */
     setQuery('')
     root.prepend(h('p', { class: 'mcpi-auth-note mcpi-notice', role: 'alert', text: ui.oauthLost }))
+    regReady.then(() => openDefault())
   } else {
     arrive(readLink(q))
   }
@@ -446,6 +491,8 @@ export function mount(root, options) {
    */
   async function arrive(link) {
     let s = null
+    const known = (url) => servers.some((x) => x.url === cleanUrl(url))
+    let isNew = false
     if (link.registry && cfg.registry) {
       let card = null
       let gone = false
@@ -458,17 +505,30 @@ export function mount(root, options) {
           if (!gone) card = registryCard(json.server || json, { http: location.protocol === 'http:' })
         }
       } catch (e) { /* not found below */ }
-      if (!card) { root.prepend(h('p', { class: 'mcpi-auth-note mcpi-notice', role: 'alert', text: gone ? ui.regInactive : ui.regMissing })); setQuery(''); return }
+      if (!card) { root.prepend(h('p', { class: 'mcpi-auth-note mcpi-notice', role: 'alert', text: gone ? ui.regInactive : ui.regMissing })); setQuery(''); regReady.then(() => openDefault()); return }
+      isNew = !known(card.url)
       s = add(card.url, 'recent', cardMeta(card))
     } else if (link.url) {
+      isNew = !known(link.url)
       s = add(link.url, 'recent', {})
     } else if (link.server) {
       s = servers.find((x) => x.key === link.server) || null
     }
-    if (!s) return
+    if (!s) { regReady.then(() => openDefault()); return }
     if (s.custom && link.auth === 'oauth') s.wantsAuth = true
     if (s.custom && link.auth === 'header' && !s.headers) { s.authHeader = link.header; save() }
     if (link.to) handoff.keep(s.url, link.to)
+    /*
+     * A link to an address on this computer or a private network, not one of the person's own servers: someone else may have made it,
+     * so a page on the public web does not call that address by itself (a page on localhost is the person's own setup, and connects). It opens, says so, and connects when the person presses the button.
+     */
+    if (isNew && isPrivateAddress(s.url) && (cfg.holdPrivate === true || (cfg.holdPrivate !== false && !isPrivateAddress(location.href)))) {
+      const note = h('p', { class: 'mcpi-auth-note mcpi-notice mcpi-hold', role: 'alert' }, h('span', { text: ui.holdLocal.replace('{v}', s.url) + ' ' }),
+        h('button', { type: 'button', class: 'mcpi-btn', text: ui.holdConnect, onclick: () => { note.remove(); if (current === s) reopen(s) } }))
+      root.prepend(note)
+      select(s, null, false, true)
+      return
+    }
     const done = select(s)
     revealOnArrival(Promise.all([regReady, done]))
   }
@@ -478,6 +538,7 @@ export function mount(root, options) {
     destroy() {
       for (const key of Object.keys(conns)) forget({ key })
       current = null
+      window.removeEventListener('resize', onResize)
       root.replaceChildren()
       root.classList.remove('mcpi')
     },

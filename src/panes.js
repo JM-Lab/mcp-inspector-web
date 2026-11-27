@@ -68,9 +68,15 @@ export function panes(ctx) {
     const f = form(tool.inputSchema, ui)
     const out = output(ui)
     const run = h('button', { type: 'button', class: 'mcpi-run', text: 'Run' })
+    /* A tool its server marks destructive runs on the second press: the first one says what it may do. */
+    const risky = !!(tool.annotations && tool.annotations.destructiveHint === true)
+    let armed = 0
+    const disarm = () => { clearTimeout(armed); armed = 0; run.textContent = 'Run'; run.classList.remove('is-sure') }
     run.addEventListener('click', () => {
       const args = f.check()
       if (!args) return
+      if (risky && !armed) { run.textContent = ui.runSure; run.classList.add('is-sure'); armed = setTimeout(disarm, 6000); return }
+      if (risky) disarm()
       call(out, run, 'tools/call', { name: tool.name, arguments: args })
     })
     /* Examples only fill in values. The answer comes from the server on Run (no stored answers are shown). */

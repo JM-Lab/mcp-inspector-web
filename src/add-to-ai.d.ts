@@ -39,11 +39,18 @@ export interface AiClient {
   get?: string
   /** The environment variable that holds the token (Codex). */
   env?: string
+  /** Where, in the client, to see that the server is connected: a command (/mcp), or the key of a string that says. */
+  check?: string
   /** The link carries the server's own token. */
   secretInLink?: boolean
 }
 
+/** A link the page using the component offers under a client. Without a label it is the connect link. */
+export interface ShareLink { url: string; label?: string; hint?: string; icon?: 'plug' | 'flask' | 'copy' }
+
 export interface AddToAiOptions {
+  /** A link your page makes for this server and client, drawn as a copy button under it in place of the install link (the inspector's: open, test, and come back to this client). */
+  shareLink?: (client: AiClient) => string | ShareLink | Array<string | ShareLink> | null | undefined
   lang?: 'en' | 'ko'
   /** Replaces any built-in string. */
   ui?: Record<string, string | string[]>

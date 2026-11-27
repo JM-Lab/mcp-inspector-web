@@ -14,6 +14,20 @@ export const REG_FIRST = 6
 /** The official MCP Registry. */
 export const REGISTRY = 'https://registry.modelcontextprotocol.io/v0/servers'
 
+/*
+ * An address on this computer or a private network (localhost, 127.x, 10.x, 172.16-31.x, 192.168.x, 169.254.x, .local, IPv6 loopback and local ranges).
+ * A link from someone else must not make the browser call such an address by itself.
+ */
+export function isPrivateAddress(url) {
+  let host = ''
+  try { host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, '') } catch (e) { return false }
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal') || host === '0.0.0.0') return true
+  if (/^(127|10)\.\d+\.\d+\.\d+$/.test(host) || /^192\.168\.\d+\.\d+$/.test(host) || /^169\.254\.\d+\.\d+$/.test(host)) return true
+  const m = /^172\.(\d+)\.\d+\.\d+$/.exec(host)
+  if (m && +m[1] >= 16 && +m[1] <= 31) return true
+  return host === '::1' || /^f[cd][0-9a-f]{2}:/.test(host) || /^fe80:/.test(host)
+}
+
 export const hostOf = (url) => { try { return new URL(url).host } catch (e) { return String(url) } }
 
 /** Normalizes an address. Returns null unless it is http(s). */

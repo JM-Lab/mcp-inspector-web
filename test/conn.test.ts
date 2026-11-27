@@ -43,7 +43,7 @@ test('Conn: connecting gets instructions and lists, and every message lands in H
   assert.equal(live.info.serverInfo.name, 'mcpi-test')
   assert.equal(live.info.instructions, 'test instructions')
   assert.ok(live.info.protocolVersion)
-  assert.deepEqual(live.tools.map((t: { name: string }) => t.name).sort(), ['add_tool', 'ask_name', 'echo', 'slow'])
+  assert.deepEqual(live.tools.map((t: { name: string }) => t.name).sort(), ['add_tool', 'ask_name', 'echo', 'slow', 'wipe'])
   assert.deepEqual(live.prompts.map((p: { name: string }) => p.name), ['greet'])
   assert.deepEqual(live.resources.map((r: { uri: string }) => r.uri), ['test://clock'])
   const init = c.log.find((e: { method: string }) => e.method === 'initialize')

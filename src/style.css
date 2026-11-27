@@ -139,6 +139,7 @@
 .mcpi-servers .mcpi-label:not(:first-child){margin-top:.7rem}
 .mcpi-cards{display:grid;gap:.6rem;grid-template-columns:repeat(auto-fill,minmax(min(100%,15.5rem),1fr))}
 .mcpi-card-wrap{position:relative;display:flex;min-width:0}
+.mcpi-cards>.mcpi-main{grid-column:1/-1;margin:.2rem 0 .4rem}
 .mcpi-card{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;gap:.2rem;text-align:left;min-height:64px;padding:.75rem 2.2rem .8rem .9rem;border:1px solid var(--mcpi-rule);border-radius:10px;background:var(--mcpi-card)}
 .mcpi-card-host{font-size:.72rem;color:var(--mcpi-mute);font-family:var(--mcpi-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mcpi-card-desc{margin-top:.25rem;font-size:.8rem;line-height:1.45;color:var(--mcpi-soft);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -147,15 +148,17 @@
 .mcpi-server[data-state=connected]::before{background:var(--mcpi-accent3)}
 .mcpi-server[data-state=connecting]::before{background:var(--mcpi-accent)}
 .mcpi-server[data-state=failed]::before{background:var(--mcpi-accent2)}
-.mcpi-server.is-on{border-color:var(--mcpi-ink);box-shadow:inset 0 0 0 1px var(--mcpi-ink)}
-.mcpi-card-wrap .mcpi-remove{position:absolute;right:.2rem;bottom:.2rem}
+.mcpi-server.is-on,.mcpi-reg.is-on{border-color:var(--mcpi-ink);box-shadow:inset 0 0 0 1px var(--mcpi-ink)}
+.mcpi-card-wrap .mcpi-remove{position:absolute;right:.3rem;top:.3rem;width:28px;height:28px;display:grid;place-items:center;border-radius:999px}
+.mcpi-card-wrap:has(.mcpi-remove) .mcpi-card{padding-right:3.4rem}
+.mcpi-card-wrap:has(.mcpi-remove) .mcpi-server::before{right:2.4rem}
 .mcpi-card-wrap[hidden]{display:none}
 .mcpi-card-wrap:has(.mcpi-card-tools) .mcpi-card{padding-bottom:2.4rem}
-.mcpi-card-tools{position:absolute;right:.25rem;bottom:.25rem;display:flex;align-items:center;gap:.1rem}
-.mcpi-card-wrap:has(.mcpi-remove) .mcpi-card-tools{right:2.4rem}
-.mcpi-card-share{width:36px;height:36px;display:grid;place-items:center;border:0;border-radius:6px;background:none;color:var(--mcpi-mute)!important;font-size:.9rem;font-weight:800}
+.mcpi-card-tools{position:absolute;right:.45rem;bottom:.45rem;display:flex;align-items:center;gap:.3rem}
+.mcpi-card-share-in{display:inline-flex;align-items:center;gap:.3rem}
+.mcpi-card-share{min-height:30px;padding:0 .75rem 0 .55rem;display:inline-flex;align-items:center;border:1px solid var(--mcpi-rule);border-radius:999px;background:var(--mcpi-card);color:var(--mcpi-ink)!important;font-size:.72rem!important;font-weight:800}
 .mcpi-card-share.is-done{color:var(--mcpi-accent3)!important}
-.mcpi-card-ai{min-height:28px;padding:0 .55rem;border:1px solid var(--mcpi-rule);border-radius:999px;background:var(--mcpi-card);color:var(--mcpi-ink)!important;font-size:.72rem!important;font-weight:800}
+.mcpi-card-ai{display:inline-flex;align-items:center;gap:.3rem;min-height:30px;padding:0 .75rem 0 .55rem;border:1px solid var(--mcpi-rule);border-radius:999px;background:var(--mcpi-card);color:var(--mcpi-ink)!important;font-size:.72rem!important;font-weight:800}
 .mcpi-card-share:hover,.mcpi-card-ai:hover{background:var(--mcpi-tint)}
 .mcpi-add-ai{justify-self:start}
 .mcpi-registry{display:grid;gap:.6rem;padding-top:.6rem;border-top:1px solid var(--mcpi-rule);min-width:0}
@@ -209,6 +212,7 @@
 .mcpi-examples-label{font-size:.72rem;font-weight:700;color:var(--mcpi-mute);margin-right:.2rem}
 @media (pointer:coarse){
   .mcpi-remove{width:44px;height:44px}
+  .mcpi-card-wrap .mcpi-remove{width:36px;height:36px;right:.15rem;top:.15rem}
 }
 @media (hover:hover){
   .mcpi-remove:hover{background:var(--mcpi-tint)}
@@ -218,3 +222,10 @@
   .mcpi-pick:hover{background:var(--mcpi-tint)}
   .mcpi-card:hover{border-color:var(--mcpi-ink)}
 }
+
+.mcpi-run.is-sure{background:var(--mcpi-accent2);border-color:var(--mcpi-accent2)}
+.mcpi-hold{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}
+.mcpi-icon-btn{width:40px;padding:0!important;display:grid;place-items:center;border-radius:999px!important}
+.mcpi-icon-btn.is-done{color:var(--mcpi-accent3)!important;border-color:var(--mcpi-accent3)}
+.mcpi-share .mcpi-share-kind{align-items:center;gap:.35rem;text-transform:none;letter-spacing:0;font-size:.78rem;color:var(--mcpi-ink)}
+.mcpi-share-kind svg{flex:none;color:var(--mcpi-accent)}

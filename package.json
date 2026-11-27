@@ -63,7 +63,8 @@
     "demo": "node scripts/build.js && node scripts/serve.js",
     "featured": "node scripts/featured.js --out demo/featured.json",
     "test": "node --test test/*.test.ts",
-    "prepublishOnly": "npm test && npm run build",
+    "typecheck": "npx -y -p typescript@5 tsc --noEmit --strict --skipLibCheck src/index.d.ts src/add-to-ai.d.ts src/lib.d.ts",
+    "prepublishOnly": "npm test && npm run typecheck && npm run build",
     "prepare": "npm run build",
     "version": "node scripts/version.js && git add src/conn.js",
     "screenshots": "node scripts/screenshots.js"

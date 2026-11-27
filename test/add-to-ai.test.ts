@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { clientsFor, slugOf, fromRegistry, ICONS, isMobileDevice, worksOnPhone, initialsOf, hueOf } from '../src/add-to-ai.js'
+import { STRINGS, clientsFor, slugOf, fromRegistry, ICONS, isMobileDevice, worksOnPhone, initialsOf, hueOf } from '../src/add-to-ai.js'
 
 const by = (server) => Object.fromEntries(clientsFor(server).map((x) => [x.id, x]))
 const by2 = (server, opts) => Object.fromEntries(clientsFor(server, opts).map((x) => [x.id, x]))
@@ -15,20 +15,46 @@ test('slugOf: a name MCP clients accept', () => {
   assert.equal(slugOf({ url: 'https://api.example.com:8443/mcp' }), 'api-example-com-8443')
 })
 
-test('clientsFor: 35 clients in three groups, each added the most direct way it allows', () => {
+test('clientsFor: 44 clients in three groups, each added the most direct way it allows', () => {
   const list = clientsFor({ id: 'a/docs', url: 'https://d.example/mcp' })
-  assert.equal(list.length, 35)
-  assert.equal(new Set(list.map((c) => c.id)).size, 35, 'ids are unique')
+  assert.equal(list.length, 44)
+  assert.equal(new Set(list.map((c) => c.id)).size, 44, 'ids are unique')
   const of = (g) => list.filter((c) => c.group === g).map((c) => c.id)
-  assert.deepEqual(of('agent'), ['claude-code', 'codex', 'gemini', 'copilot-cli', 'opencode', 'openclaw', 'hermes', 'goose', 'amp', 'qwen', 'droid', 'augment', 'crush', 'warp'])
-  assert.deepEqual(of('editor'), ['vscode', 'cursor', 'windsurf', 'vscode-insiders', 'visual-studio', 'kiro', 'zed', 'jetbrains', 'junie', 'cline', 'kilo', 'continue', 'lmstudio', 'trae'])
-  assert.deepEqual(of('app'), ['claude', 'chatgpt', 'gemini-app', 'lechat', 'perplexity', 'copilot-studio', 'manus'])
-  assert.deepEqual(list.filter((c) => c.kind === 'link').map((c) => c.id), ['goose', 'vscode', 'cursor', 'vscode-insiders', 'visual-studio', 'kiro', 'lmstudio', 'trae'])
+  assert.deepEqual(of('agent'), ['claude-code', 'codex', 'gemini', 'copilot-cli', 'opencode', 'openclaw', 'hermes', 'goose', 'amp', 'qwen', 'droid', 'augment', 'crush', 'kimi', 'vibe', 'openhands', 'warp'])
+  assert.deepEqual(of('editor'), ['vscode', 'cursor', 'windsurf', 'vscode-insiders', 'visual-studio', 'kiro', 'antigravity', 'roo', 'amazon-q', 'zed', 'jetbrains', 'junie', 'cline', 'kilo', 'continue', 'lmstudio', 'trae'])
+  assert.deepEqual(of('app'), ['claude', 'chatgpt', 'gemini-app', 'lechat', 'perplexity', 'copilot-studio', 'replit', 'librechat', 'openwebui', 'manus'])
+  assert.deepEqual(list.filter((c) => c.kind === 'link').map((c) => c.id), ['goose', 'vscode', 'cursor', 'vscode-insiders', 'visual-studio', 'kiro', 'lmstudio', 'trae', 'replit'])
   for (const c of list) assert.ok(['link', 'command', 'file', 'settings'].includes(c.kind) && c.code && c.label, c.id + ' is complete')
   for (const c of list.filter((x) => x.kind === 'link')) assert.ok(c.link && c.file, c.id + ' has a link and a file to edit by hand')
   for (const c of list.filter((x) => x.kind === 'file')) assert.ok(c.file, c.id + ' names its file')
   for (const c of list.filter((x) => x.kind === 'settings')) assert.ok(c.steps, c.id + ' has steps')
-  for (const c of list.filter((x) => x.group === 'app')) assert.match(c.settings, /^https:\/\//, c.id + ' links to its settings')
+  /* The hosted chat apps link to their settings; the self-hosted ones (LibreChat, Open WebUI) and Replit's link have no one address. */
+  for (const c of list.filter((x) => x.group === 'app' && !['replit', 'librechat', 'openwebui'].includes(x.id))) assert.match(c.settings, /^https:\/\//, c.id + ' links to its settings')
+})
+
+test('clientsFor: the clients added from their docs, and where to check each one is connected', () => {
+  const o = Object.fromEntries(clientsFor({ id: 'a/docs', name: 'Docs', url: 'https://d.example/mcp' }).map((c) => [c.id, c]))
+  const k = Object.fromEntries(clientsFor({ id: 'a/docs', name: 'Docs', url: 'https://d.example/mcp', headers: { 'X-Key': 'secret' } }, { secret: true }).map((c) => [c.id, c]))
+  /* Replit: displayName, baseUrl and headers as [{ key, value }], Base64, on its integrations page. The token never rides along. */
+  const replit = (c) => JSON.parse(Buffer.from(decodeURIComponent(c.link.split('mcp=')[1]), 'base64').toString())
+  assert.match(o.replit.link, /^https:\/\/replit\.com\/integrations\?mcp=/)
+  assert.deepEqual(replit(o.replit), { displayName: 'Docs', baseUrl: 'https://d.example/mcp' })
+  assert.deepEqual(replit(k.replit), { displayName: 'Docs', baseUrl: 'https://d.example/mcp', headers: [{ key: 'X-Key', value: '<token>' }] })
+  assert.ok(!k.replit.link.includes('secret') && !k.replit.secretInLink)
+  assert.deepEqual(JSON.parse(k.roo.code), { mcpServers: { docs: { type: 'streamable-http', url: 'https://d.example/mcp', headers: { 'X-Key': 'secret' } } } })
+  assert.equal(o.roo.file, '.roo/mcp.json')
+  assert.deepEqual(JSON.parse(o.kimi.code), { mcpServers: { docs: { url: 'https://d.example/mcp' } } })
+  assert.equal(o.kimi.file, '~/.kimi-code/mcp.json')
+  assert.deepEqual(JSON.parse(k.antigravity.code), { mcpServers: { docs: { serverUrl: 'https://d.example/mcp', headers: { 'X-Key': 'secret' } } } })
+  assert.equal(o.vibe.code, 'vibe mcp add docs --url https://d.example/mcp')
+  assert.equal(k.vibe.kind, 'file')
+  assert.equal(k.vibe.code, '[[mcp_servers]]\nname = "docs"\ntransport = "streamable-http"\nurl = "https://d.example/mcp"\n\n[mcp_servers.auth]\ntype = "static"\nheaders = { "X-Key" = "secret" }')
+  for (const id of ['openhands', 'amazon-q', 'librechat', 'openwebui']) assert.equal(o[id].kind, 'settings', id)
+  /* A check is a command to type, or the name of a string that says where to look. */
+  assert.equal(o['claude-code'].check, '/mcp')
+  assert.equal(o.opencode.check, 'opencode mcp list')
+  for (const c of Object.values(o)) if (c.check && !/^(\/|\w+ mcp )/.test(c.check)) for (const lang of ['en', 'ko']) assert.equal(typeof STRINGS[lang][c.check], 'string', c.id + ' ' + lang)
+  for (const c of Object.values(o)) if (c.steps) for (const lang of ['en', 'ko']) assert.ok(Array.isArray(STRINGS[lang][c.steps]), c.id + ' steps ' + lang)
 })
 
 test('clientsFor: each client\'s own format, as its docs or source define it', () => {
@@ -186,7 +212,7 @@ test('ICONS: from public CDNs at fixed versions; a client with none gets initial
     if (!icon) { without.push(c.id); continue }
     assert.match(icon.src, /^https:\/\/cdn\.jsdelivr\.net\/(npm\/@lobehub\/icons-static-svg@\d+\.\d+\.\d+|gh\/vscode-icons\/vscode-icons@v\d+\.\d+\.\d+|npm\/simple-icons@\d+\.\d+\.\d+)\/icons\/[\w-]+\.svg$/, c.id + ' is pinned')
   }
-  assert.deepEqual(without, ['droid', 'augment', 'crush', 'continue'])
+  assert.deepEqual(without, ['droid', 'augment', 'crush', 'continue', 'librechat'])
   assert.equal(initialsOf('Factory Droid'), 'FD')
   assert.equal(initialsOf('Augment (auggie)'), 'Au')
   assert.equal(initialsOf('Crush'), 'Cr')
@@ -209,7 +235,7 @@ test('isMobileDevice: phones and tablets, from Client Hints or the user agent', 
 
 test('worksOnPhone: only the chat apps, set up on their websites; every computer client links to where to get it', () => {
   const list = clientsFor({ url: 'https://d.example/mcp' })
-  assert.deepEqual(list.filter(worksOnPhone).map((c) => c.id), ['claude', 'chatgpt', 'gemini-app', 'lechat', 'perplexity', 'copilot-studio', 'manus'])
+  assert.deepEqual(list.filter(worksOnPhone).map((c) => c.id), ['claude', 'chatgpt', 'gemini-app', 'lechat', 'perplexity', 'copilot-studio', 'replit', 'librechat', 'openwebui', 'manus'])
   for (const c of list.filter((x) => !worksOnPhone(x))) assert.match(c.get, /^https:\/\//, c.id + ' has a page to get it')
 })
 

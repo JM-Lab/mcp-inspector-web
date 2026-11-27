@@ -29,11 +29,17 @@ try {
   /* A site's sticky header would cover the inspector in full-page captures. */
   await b.run(`for (const e of document.querySelectorAll('body *')) { const p = getComputedStyle(e).position; if ((p === 'sticky' || p === 'fixed') && !e.closest('.mcpi')) e.style.display = 'none' }`)
 
-  /* 1. Overview: servers, registry and the open inspector. */
+  /* 1. Overview: servers, registry, and the inspector open right under the card pressed. */
   await b.run('window.scrollTo(0, 0)')
-  await shot('overview.png', `(() => { const r = document.querySelector('.mcpi').getBoundingClientRect(); const end = document.querySelector('.mcpi-main').getBoundingClientRect().top + 120; return { x: r.x - 16, y: r.y + scrollY - 16, width: r.width + 32, height: end - r.y + 16 } })()`)
+  await shot('overview.png', `(() => { const r = document.querySelector('.mcpi').getBoundingClientRect(); const end = document.querySelector('.mcpi-main').getBoundingClientRect().top + 330; return { x: r.x - 16, y: r.y + scrollY - 16, width: r.width + 32, height: end - r.y + 16 } })()`)
 
-  /* 2. A tool run. */
+  /* 2. The two links to pass on: the Share box of the open server, with its inspector link and the way to the connect link. */
+  await b.run(`document.querySelector('.mcpi-share').open = true`)
+  await sleep(200)
+  await shot('share.png', `(() => { const r = document.querySelector('.mcpi-main').getBoundingClientRect(); const end = document.querySelector('.mcpi-share').getBoundingClientRect().bottom; return { x: r.x - 16, y: r.y + scrollY - 16, width: r.width + 32, height: end - r.y + 40 } })()`)
+  await b.run(`document.querySelector('.mcpi-share').open = false`)
+
+  /* 3. A tool run. */
   await b.run(`(() => { const i = document.getElementById('mcpi-f-query'); i.value = 'Model Context Protocol'; i.dispatchEvent(new Event('input')); document.querySelector('.mcpi-pane .mcpi-run').click() })()`)
   await b.until(`/ms$/.test(document.querySelector('.mcpi-pane .mcpi-out-bar span').textContent)`, 20000)
   await sleep(300)
@@ -46,6 +52,16 @@ try {
   await b.run(`(() => { const d = document.querySelector('.mcpi-history details:nth-child(2)'); if (d) d.open = true })()`)
   await sleep(200)
   await shot('history.png', clipOf(1000))
+
+  /*
+   * 5. The Add to AI popup: the one-click clients first, and under the client picked its command, where to check it,
+   * and its connect link. The picked client is a command one, so nothing tries to open an app here.
+   */
+  await b.run(`document.querySelector('.mcpi-share').open = true; document.querySelector('.mcpi-share .mcpi-add-ai').click()`)
+  await b.until(`document.querySelector('dialog.mcpi-addto')`, 5000)
+  await b.run(`document.querySelector('.mcpi-addto-tile[data-client=claude-code]').click(); document.querySelector('dialog.mcpi-addto').scrollTop = 0`)
+  await sleep(1200)
+  await shot('add-to-ai.png', `(() => { const r = document.querySelector('dialog.mcpi-addto').getBoundingClientRect(); return { x: r.x, y: r.y + scrollY, width: r.width, height: Math.min(r.height, 640) } })()`)
 } finally {
   await b.close()
 }

@@ -10,6 +10,8 @@ export const REGISTRY: string
 export const FILTERS: string[]
 export function storeKeys(prefix?: string): { v2: string; v1: string }
 export function hostOf(url: string): string
+/** An address on this computer or a private network (localhost, 10.x, 192.168.x, .local, …). */
+export function isPrivateAddress(url: string): boolean
 export function cleanUrl(text: string): string | null
 export function pickRemote(sv: object, opts?: { http?: boolean }): { url: string; headers?: object[] } | null
 export function isActive(entry: object): boolean

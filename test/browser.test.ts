@@ -15,6 +15,8 @@ import { startMcpServer } from './support/mcp-server.ts'
 
 const chrome = process.env.MCPI_BROWSER === '0' ? null : findChrome()
 const skip = process.env.MCPI_BROWSER === '0' ? 'MCPI_BROWSER=0' : !chrome && 'no Chrome found (set CHROME)'
+/* On CI a missing Chrome is a broken setup, not a reason to pass with the browser tests left out. */
+if (process.env.CI && skip && process.env.MCPI_BROWSER !== '0') throw new Error('CI: browser tests cannot run: ' + skip)
 
 let mcp: Awaited<ReturnType<typeof startMcpServer>>
 let page: http.Server
@@ -61,16 +63,19 @@ before(async () => {
   /* For the AI component: an entry with an https remote (what it accepts) and the header it needs. */
   const docs = { server: { name: 'io.test/docs', title: 'Docs from the registry', remotes: [{ type: 'streamable-http', url: 'https://docs.example/mcp', headers: [{ name: 'X-Docs-Key', isSecret: true }] }] } }
   const retired = { server: { name: 'io.test/retired', title: 'Retired', remotes: [{ type: 'streamable-http', url: 'https://retired.example/mcp' }] }, _meta: { 'io.modelcontextprotocol.registry/official': { status: 'deprecated' } } }
+  /* Search results: addresses the panel lists (https only), never connected to here. */
+  const found = ['a', 'b'].map((x) => ({ server: { name: 'io.test/' + x, title: 'Found ' + x.toUpperCase(), remotes: [{ type: 'streamable-http', url: 'https://' + x + '.example/mcp' }] } }))
   const registry = { 'io.test/local': entry, 'io.test/locked': locked, 'io.test/docs': docs, 'io.test/retired': retired }
-  const options = { lang: 'en', registry: '/registry/v0/servers', servers: [{ key: 'local', name: 'Local test server', url: mcp.base + '/mcp' }] }
+  const options = { lang: 'en', registry: '/registry/v0/servers', openFirst: false, servers: [{ key: 'local', name: 'Local test server', url: mcp.base + '/mcp' }] }
   const html = `<!doctype html><html lang="en"><meta charset="utf-8"><title>test</title><link rel="stylesheet" href="/mcp-inspector.css">
 <div id="mcpi"></div><script>window.MCP_INSPECTOR = ${JSON.stringify(options)}</script><script src="/mcp-inspector.js"></script>`
   page = http.createServer((req, res) => {
-    const path = new URL(req.url!, 'http://x').pathname
+    const full = new URL(req.url!, 'http://x')
+    const path = full.pathname
     if (path === '/mcp-inspector.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(js); return }
     if (path.startsWith('/registry/')) {
       const name = decodeURIComponent(path.replace('/registry/v0/servers/', '').replace('/versions/latest', ''))
-      const body = path === '/registry/v0/servers' ? { servers: [], metadata: {} } : registry[name as keyof typeof registry]
+      const body = path === '/registry/v0/servers' ? { servers: full.searchParams.get('search') ? found : [], metadata: {} } : registry[name as keyof typeof registry]
       res.writeHead(body ? 200 : 404, { 'content-type': 'application/json' }); res.end(JSON.stringify(body || { error: 'not found' })); return
     }
     if (path === '/lib.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(lib); return }
@@ -95,7 +100,7 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
   await t.test('opening a pinned server connects and lists everything', async () => {
     await open('?server=local')
     await b.until(`$t.status() === 'Connected'`)
-    assert.deepEqual(await b.run(`[$t.count('Tools'), $t.count('Prompts'), $t.count('Resources')]`), [4, 1, 1])
+    assert.deepEqual(await b.run(`[$t.count('Tools'), $t.count('Prompts'), $t.count('Resources')]`), [5, 1, 1])
     assert.match(await b.run(`document.querySelector('.mcpi-info').textContent`), /mcpi-test 0\.0\.1/)
     assert.equal(await b.run(`document.querySelector('.mcpi-instr pre').textContent`), 'test instructions')
     assert.match(await b.run('location.search'), /\?s=local/)
@@ -189,7 +194,7 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.equal(mcp.oauth.tokenCalls, before + 1, 'the code was exchanged once')
     assert.ok(mcp.oauth.registered >= 1, 'the client registered itself')
     await b.run(HELPERS)
-    assert.equal(await b.run(`$t.count('Tools')`), 4)
+    assert.equal(await b.run(`$t.count('Tools')`), 5)
     assert.equal(await b.run(`Object.keys(sessionStorage).some((k) => k.startsWith('mcpi:tokens:'))`), true, 'tokens are in sessionStorage')
     assert.equal(await b.run(`localStorage.getItem('mcpi:oauth')`), null, 'the pending sign-in was used up')
   })
@@ -200,8 +205,16 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.equal(await b.run(`document.querySelector('.mcpi-id h2').textContent`), 'Registry test server')
     assert.equal(await b.run('location.search'), '?r=io.test/local')
     assert.equal(await b.run(`document.querySelector('.mcpi-share-link').value`), origin + '/?r=io.test/local')
+    /* Two links to pass on, each named and with its own sign: the inspector link here, the connect link under the client picked. */
+    assert.deepEqual(await b.run(`[...document.querySelectorAll('.mcpi-share-kind')].map((p) => p.textContent.split(':')[0] + ':' + !!p.querySelector('svg'))`), ['Inspector link:true', 'Connect link:true'])
+    assert.match(await b.run(`document.querySelector('.mcpi-card-share').title`), /^Copy inspector link/)
+    assert.equal(await b.run(`document.querySelector('.mcpi-card-ai').textContent + '|' + document.querySelector('.mcpi-card-ai').querySelectorAll('svg path').length`), 'Add to AI|3', 'a spark with a plus, and the words')
+    assert.equal(await b.run(`document.querySelector('.mcpi-card-share').textContent + '|' + !!document.querySelector('.mcpi-card-share svg')`), 'Inspector link|true', 'the card button says what it copies')
     await b.run(`document.querySelector('.mcpi-share .mcpi-add-ai').click()`)
     await b.run(`[...document.querySelectorAll('.mcpi-addto-tile')].find((x) => x.dataset.client === 'claude-code').click()`)
+    /* Under the client, both links to pass on: the inspector link (a flask) and the connect link (a plug with a spark). */
+    assert.deepEqual(await b.run(`[...document.querySelectorAll('.mcpi-addto-share')].map((x) => x.className.split(' is-').pop() + '|' + x.textContent + '|' + x.dataset.copy)`),
+      ['flask|Inspector link|' + origin + '/?r=io.test/local', 'plug|Claude Code connect link|' + origin + '/?r=io.test/local&to=claude-code'])
     assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail pre').textContent`), 'claude mcp add --transport http local ' + mcp.base + '/from-registry')
     await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
     await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
@@ -255,7 +268,7 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.equal(await b.run(`document.querySelector('#x').childElementCount`), 0)
     assert.equal(await b.run(`document.querySelector('#x').classList.contains('mcpi')`), false)
     /* Mounted again on the same element, it starts fresh. */
-    await b.run(`window.inst = MCPI.mount(document.querySelector('#x'), { registry: null, servers: [{ key: 'local', name: 'Local', url: ${JSON.stringify(mcp.base + '/mcp')} }], syncUrl: false }); true`)
+    await b.run(`window.inst = MCPI.mount(document.querySelector('#x'), { registry: null, servers: [{ key: 'local', name: 'Local', url: ${JSON.stringify(mcp.base + '/mcp')} }], syncUrl: false, openFirst: false }); true`)
     assert.equal(await b.run(`document.querySelectorAll('#x .mcpi-server').length >= 1 && document.querySelector('.mcpi-main').hidden`), true)
   })
 
@@ -273,6 +286,10 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.equal(await b.run(`document.querySelector('dialog.mcpi-addto').open`), true)
     assert.equal(await b.run(`document.querySelector('.mcpi-main').hidden`), true, 'the AI button does not open the server either')
     await b.run(`[...document.querySelectorAll('.mcpi-addto-tile')].find((x) => x.dataset.client === 'gemini').click()`)
+    /* The inspector adds its own link: this server, tested here, then on to this client (&to=). The header name goes in, never the token. */
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-share.is-plug').dataset.copy`), origin + '/?u=' + mcp.base + '/token&h=x-test-key&to=gemini')
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-share.is-flask').dataset.copy`), origin + '/?u=' + mcp.base + '/token&h=x-test-key')
+    assert.match(await b.run(`document.querySelector('.mcpi-addto-share.is-plug').title`), /No token goes in it/)
     /* As you set it up here: your token is in, so the command works as it is. */
     assert.equal(await b.run(`document.querySelector('.mcpi-addto-secret input').checked`), true)
     assert.match(await b.run(`document.querySelector('.mcpi-addto-detail pre').textContent`), /--header "x-test-key: secret"$/)
@@ -282,8 +299,28 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.match(await b.run(`document.querySelector('.mcpi-addto-detail pre').textContent`), /--header "x-test-key: <token>"$/)
     assert.doesNotMatch(await b.run(`document.querySelector('dialog.mcpi-addto').textContent`), /secret/)
     assert.match(await b.run(`document.querySelector('.mcpi-addto-note').textContent`), /Put yours where <token> is/)
-    await b.run(`$t.button('Close', document.querySelector('dialog.mcpi-addto')).click()`)
+    await b.run(`document.querySelector('dialog.mcpi-addto [aria-label=Close]').click()`)
     await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+  })
+
+  await t.test("pressing a card opens the inspector right under that card's row, in the registry list too", async () => {
+    await open()
+    /* Under the row: it shares the card's list, and the card before it sits on the pressed card's row. */
+    const under = (card: string) => b.run(`(() => { const m = document.querySelector('.mcpi-main'); const w = ${card}.closest('.mcpi-card-wrap'); return !m.hidden && m.parentElement === w.parentElement && m.previousElementSibling.offsetTop === w.offsetTop })()`)
+    await b.run(`document.querySelector('.mcpi-server[data-key=local]').click()`)
+    assert.equal(await under(`document.querySelector('.mcpi-server[data-key=local]')`), true, 'under a card of your own')
+    /* A registry search result: it goes into recently viewed, and the inspector opens under it there, not up in that list. */
+    await b.run(`(() => { const i = document.querySelector('.mcpi-reg-bar input'); i.value = 'locked'; i.dispatchEvent(new Event('input')) })()`)
+    await b.until(`document.querySelectorAll('.mcpi-reg').length === 2`, 4000)
+    await b.run(`document.querySelectorAll('.mcpi-reg')[1].click()`)
+    await b.until(`document.querySelector('.mcpi-id h2').textContent === 'Found B'`, 4000)
+    assert.equal(await under(`document.querySelectorAll('.mcpi-reg')[1]`), true, 'under the registry card')
+    assert.equal(await b.run(`!!document.querySelector('.mcpi-reg-list .mcpi-main')`), true)
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-reg')[1].classList.contains('is-on') && !document.querySelectorAll('.mcpi-reg')[0].classList.contains('is-on')`), true, 'the card it opened under is marked')
+    /* Searching again draws the list anew: the inspector goes back under the server's own card instead of vanishing. */
+    await b.run(`(() => { const i = document.querySelector('.mcpi-reg-bar input'); i.value = 'other'; i.dispatchEvent(new Event('input')) })()`)
+    await b.until(`!document.querySelector('.mcpi-reg-list .mcpi-main') && document.querySelectorAll('.mcpi-reg').length === 2`, 4000)
+    assert.equal(await under(`[...document.querySelectorAll('.mcpi-server')].find((x) => x.dataset.key === 'https://b.example/mcp')`), true)
   })
 
   await t.test('the AI component on a page of its own: one click where the client allows, steps where it does not', async () => {
@@ -293,13 +330,13 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     await b.run(`document.querySelector('#open button').click()`)
     const pick = (id: string) => b.run(`[...document.querySelectorAll('.mcpi-addto-tile')].find((x) => x.dataset.client === '${id}').click()`)
     const detail = `document.querySelector('.mcpi-addto-detail')`
-    assert.equal(await b.run(`[...document.querySelectorAll('.mcpi-addto-tile')].length`), 35)
+    assert.equal(await b.run(`[...document.querySelectorAll('.mcpi-addto-tile')].length`), 44)
 
     await pick('vscode')
-    const href = await b.run(detail + `.querySelector('a.mcpi-addto-go').getAttribute('href')`)
+    const href = await b.run(detail + `.querySelector('a.mcpi-addto-open').getAttribute('href')`)
     assert.deepEqual(JSON.parse(decodeURIComponent(href.replace('vscode:mcp/install?', ''))), { name: 'docs', type: 'http', url: 'https://docs.example/mcp' })
     await pick('cursor')
-    assert.match(await b.run(detail + `.querySelector('a.mcpi-addto-go').href`), /^cursor:\/\/anysphere\.cursor-deeplink\/mcp\/install\?name=docs&config=/)
+    assert.match(await b.run(detail + `.querySelector('a.mcpi-addto-open').href`), /^cursor:\/\/anysphere\.cursor-deeplink\/mcp\/install\?name=docs&config=/)
     await pick('codex')
     assert.equal(await b.run(detail + `.querySelector('pre').textContent`), 'codex mcp add docs --url https://docs.example/mcp')
     await pick('windsurf')
@@ -352,7 +389,7 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
 
     /* Each client has its icon; one that cannot load shows a letter, and icons: false leaves them out. */
     await b.run(`MCPAddToAI.openAddToAi({ url: 'https://x.example/mcp' }, { icons: { claude: '/no-such-icon.svg' } })`)
-    assert.equal(await b.run(`document.querySelectorAll('.mcpi-addto-tile .mcpi-addto-ico').length`), 35)
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-addto-tile .mcpi-addto-ico').length`), 44)
     assert.match(await b.run(`document.querySelector('[data-client=vscode] .mcpi-addto-ico').dataset.icon`), /^https:\/\/cdn\.jsdelivr\.net\//)
     assert.equal(await b.run(`document.querySelector('[data-client=cursor] .mcpi-addto-ico').classList.contains('is-mono')`), true, 'a mono icon follows the text color')
     await b.until(`document.querySelector('[data-client=claude] .mcpi-addto-ico').textContent === 'Cl'`)
@@ -364,27 +401,55 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
     await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
 
-    /* An install link that opens nothing (no such app here) says so after a moment, and opens the by-hand setup. */
+    /*
+     * A one-click client is added by the press on its tile: its link opens at once. With no such app here nothing opens,
+     * which it says after a moment, opening the by-hand setup. Other tiles only show their way.
+     */
     await b.run(`MCPAddToAI.openAddToAi({ url: 'https://x.example/mcp' }, { mobile: false })`)
+    await b.run(`window.went = []; document.querySelector('dialog.mcpi-addto').addEventListener('click', (e) => { const a = e.target.closest && e.target.closest('a.mcpi-addto-open'); if (a) went.push(a.getAttribute('href').split(':')[0]) }, true); true`)
+    await b.run(`document.querySelector('[data-client=codex]').click()`)
+    assert.equal(await b.run(`went.length`), 0, 'a command tile starts nothing')
+    assert.equal(await b.run(`document.querySelector('[data-client=vscode] span:last-child').textContent`), 'Press to add')
     await b.run(`document.querySelector('[data-client=vscode]').click()`)
+    assert.deepEqual(await b.run(`went`), ['vscode'], 'the tile press opened the link')
+    /* The same tile again tries the link again, and leaves what is under it as it is (nothing redrawn, nothing jumps). */
+    await b.run(`document.querySelector('.mcpi-addto-detail').firstElementChild.dataset.mark = '1'; document.querySelector('[data-client=vscode]').click()`)
+    assert.deepEqual(await b.run(`went`), ['vscode', 'vscode'])
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail').firstElementChild.dataset.mark`), '1')
     assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail .mcpi-addto-away').hidden`), true)
-    await b.run(`document.querySelector('.mcpi-addto-detail a.mcpi-addto-go').click()`)
     await b.until(`!document.querySelector('.mcpi-addto-detail .mcpi-addto-away').hidden`, 6000)
     assert.equal(await b.run(`document.querySelector('.mcpi-addto-manual').open`), true)
     assert.match(await b.run(`document.querySelector('.mcpi-addto-get').href`), /^https:\/\/code\.visualstudio\.com\//)
-    /* It says to open the app first and try again, with Try again and where to get it right there. */
+    /*
+     * It says to open the app first and press Open again. There is no second add button: one row of buttons, each an icon and a word,
+     * opens the link again, copies it to send, and goes to the client's website.
+     */
     const away = `document.querySelector('.mcpi-addto-detail .mcpi-addto-away')`
     assert.match(await b.run(away + '.textContent'), /open it first, then press Try again/)
-    assert.match(await b.run(away + `.querySelector('a.mcpi-addto-get').href`), /^https:\/\/code\.visualstudio\.com\//)
-    await b.run(away + `.querySelector('.mcpi-addto-again').click()`)
+    assert.equal(await b.run(`[...document.querySelectorAll('.mcpi-addto-detail .mcpi-addto-acts > *')].map((x) => x.className.replace('mcpi-addto-go is-quiet ', '') + ':' + x.textContent + ':' + !!x.querySelector('svg')).join()`),
+      'mcpi-addto-open:Try again:true,mcpi-addto-get:VS Code website:true,mcpi-addto-install:Install link:true')
+    assert.match(await b.run(`document.querySelector('.mcpi-addto-install').dataset.copy`), /^vscode:mcp\/install\?/)
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-addto-detail a.mcpi-addto-go:not(.is-quiet)').length`), 0, 'no big add button')
+    assert.equal(await b.run(`!!document.querySelector('.mcpi-addto-share')`), false, 'on its own, the component has no link to this page: that comes from the page using it')
+    await b.run(`document.querySelector('.mcpi-addto-open').click()`)
     assert.equal(await b.run(away + '.hidden'), true, 'Try again presses the link once more')
     await b.until(`!${away}.hidden`, 6000)
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+
+    /* A page gives its own link with shareLink, drawn as one more button under the client. */
+    await b.run(`MCPAddToAI.openAddToAi({ url: 'https://x.example/mcp' }, { mobile: false, client: 'codex', shareLink: (c) => 'https://my.example/?u=x.example/mcp&to=' + c.id })`)
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-share').dataset.copy`), 'https://my.example/?u=x.example/mcp&to=codex')
+    await b.run(`document.querySelector('[data-client=trae]').click()`)
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-share').dataset.copy + ' ' + !!document.querySelector('.mcpi-addto-install')`), 'https://my.example/?u=x.example/mcp&to=trae false', 'one link to pass on: the page link takes the install link\'s place')
     await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
     await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
 
     /* Keys: the search box has focus, arrows move through the tiles and pick, and closing gives focus back to the opener. */
     await b.run(`(() => { const o = document.createElement('button'); o.id = 'opener'; o.textContent = 'open'; document.body.append(o); o.focus(); MCPAddToAI.openAddToAi({ url: 'https://x.example/mcp' }, { mobile: false, client: 'codex' }) })()`)
     assert.equal(await b.run(`document.activeElement.classList.contains('mcpi-addto-search')`), true)
+    /* Closing is an × icon, named for screen readers, like the inspector's own. */
+    assert.equal(await b.run(`(() => { const c = document.querySelector('.mcpi-addto-close'); return c.textContent === '' && !!c.querySelector('svg') && c.getAttribute('aria-label') })()`), 'Close')
     assert.equal(await b.run(`document.querySelectorAll('.mcpi-addto-tile[tabindex="0"]').length`), 1, 'one tile in the Tab order: the picked one')
     const key = (k: string) => b.run(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: '${k}', bubbles: true }))`)
     await b.run(`document.querySelector('.mcpi-addto-tile[data-client=codex]').focus()`)
@@ -396,7 +461,26 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     await key('End')
     assert.equal(await b.run(`document.activeElement.dataset.client`), 'manus')
     await key('ArrowDown')
-    assert.equal(await b.run(`document.activeElement.dataset.client`), 'claude-code', 'it wraps around')
+    assert.equal(await b.run(`document.activeElement.dataset.client`), 'vscode', 'it wraps around, to the one-click group that leads')
+    /* The clients with a one-click link sit together at the top, and no other group repeats them. */
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-group').dataset.group`), 'link')
+    assert.equal(await b.run(`[...document.querySelectorAll('.mcpi-addto-group[data-group=link] .mcpi-addto-tile')].map((x) => x.dataset.client).join()`), 'vscode,cursor,vscode-insiders,visual-studio,kiro,lmstudio,trae,replit,goose')
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-addto-tile[data-client=vscode]').length`), 1)
+    /* What any client needs to connect by hand stays at the bottom, under the picked client's own way. */
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-any [data-copy]').dataset.copy`), 'https://x.example/mcp')
+    assert.equal(await b.run(`!!(document.querySelector('.mcpi-addto-detail').compareDocumentPosition(document.querySelector('.mcpi-addto-any')) & Node.DOCUMENT_POSITION_FOLLOWING)`), true)
+    /* Where to get a client is a button to its website, not a sentence. */
+    await b.run(`document.querySelector('.mcpi-addto-tile[data-client=gemini]').click()`)
+    assert.equal(await b.run(`(() => { const a = document.querySelector('.mcpi-addto-detail a.mcpi-addto-get'); return a.classList.contains('mcpi-addto-go') && a.target === '_blank' && a.href })()`), 'https://github.com/google-gemini/gemini-cli')
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-any [data-copy]').dataset.copy`), 'https://x.example/mcp', 'still there after picking another client')
+    /* Where to check it is connected, and copying is an icon named for screen readers. */
+    assert.match(await b.run(`document.querySelector('.mcpi-addto-check').textContent`), /To check it is connected: \/mcp/)
+    assert.equal(await b.run(`(() => { const c = document.querySelector('.mcpi-addto-detail .mcpi-addto-copy'); return c.textContent === '' && !!c.querySelector('svg') && c.getAttribute('aria-label') + '|' + c.title })()`), 'Copy|Copy')
+    /* The picked client's way opens right under the row its tile is in, inside that group; the by-hand box stays outside, at the bottom. */
+    assert.equal(await b.run(`(() => { const p = document.querySelector('.mcpi-addto-detail'); const g = document.querySelector('[data-client=gemini]'); const prev = p.previousElementSibling; return p.parentElement === g.parentElement && prev.offsetTop === g.offsetTop })()`), true)
+    await b.run(`document.querySelector('[data-client=lmstudio]').click()`)
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail').closest('[data-group]').dataset.group`), 'link')
+    assert.equal(await b.run(`!document.querySelector('.mcpi-addto-groups .mcpi-addto-any') && document.querySelector('dialog.mcpi-addto').lastElementChild.classList.contains('mcpi-addto-any')`), true)
     /* Searching narrows what the arrows walk through. */
     await b.run(`(() => { const i = document.querySelector('.mcpi-addto-search'); i.value = 'vs'; i.dispatchEvent(new Event('input')) })()`)
     await b.run(`document.querySelector('.mcpi-addto-tile[data-client=vscode]').focus()`)
@@ -419,12 +503,12 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.equal(await b.run(`!!document.querySelector('.mcpi-addto-mobile')`), true)
     assert.deepEqual(await b.run(`[...document.querySelectorAll('.mcpi-addto-tile')].slice(0, 2).map((x) => x.dataset.client)`), ['claude', 'chatgpt'])
     assert.equal(await b.run(`document.querySelector('.mcpi-addto-group').dataset.group`), 'app', 'chat apps come first')
-    assert.equal(await b.run(`document.querySelectorAll('.mcpi-addto-tile.is-away').length`), 28)
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-addto-tile.is-away').length`), 34)
     assert.equal(await b.run(`document.querySelector('[data-client=cursor] span:last-child').textContent`), 'Computer only')
     assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail').dataset.client`), 'claude', 'it opens on one that works here')
     await b.run(`document.querySelector('[data-client=cursor]').click()`)
     assert.match(await b.run(`document.querySelector('.mcpi-addto-detail .mcpi-addto-away').textContent`), /runs on a computer/)
-    assert.equal(await b.run(`!!document.querySelector('.mcpi-addto-detail a.mcpi-addto-go')`), false, 'no one-click link on a phone')
+    assert.equal(await b.run(`!!document.querySelector('.mcpi-addto-detail .mcpi-addto-open, .mcpi-addto-detail .mcpi-addto-install')`), false, 'no one-click link on a phone')
     assert.equal(await b.run(`document.querySelector('.mcpi-addto-manual').open`), true, 'the setup is there to copy')
     assert.doesNotMatch(await b.run(`document.querySelector('.mcpi-addto-detail').textContent`), /null|undefined/)
     await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
@@ -445,15 +529,15 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
 
     /* Groups, and a search over them: by name or group, Enter picks the first, and no match says so. */
     await b.run(`MCPAddToAI.openAddToAi({ url: 'https://x.example/mcp' }, { mobile: false })`)
-    assert.deepEqual(await b.run(`[...document.querySelectorAll('.mcpi-addto-group')].map((g) => g.dataset.group)`), ['agent', 'editor', 'app'])
+    assert.deepEqual(await b.run(`[...document.querySelectorAll('.mcpi-addto-group')].map((g) => g.dataset.group)`), ['link', 'agent', 'editor', 'app'])
     const find = (text: string) => b.run(`(() => { const s = document.querySelector('.mcpi-addto-search'); s.value = ${JSON.stringify(text)}; s.dispatchEvent(new Event('input')); return [...document.querySelectorAll('.mcpi-addto-tile')].filter((x) => !x.hidden).map((x) => x.dataset.client) })()`)
     assert.deepEqual(await find('zed'), ['zed'])
-    assert.equal((await find('chat apps')).length, 7, 'a group name finds its clients')
-    assert.equal(await b.run(`document.querySelectorAll('.mcpi-addto-group:not([hidden])').length`), 1, 'empty groups hide')
+    assert.equal((await find('chat apps')).length, 10, 'a group name finds its clients')
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-addto-group:not([hidden])').length`), 2, 'empty groups hide (Replit, a chat app, sits with the one-click ones)')
     await find('kiro')
     await b.run(`document.querySelector('.mcpi-addto-search').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))`)
     assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail').dataset.client`), 'kiro')
-    assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail a.mcpi-addto-go').target`), '_blank', 'a web install link opens in a new tab')
+    assert.equal(await b.run(`document.querySelector('.mcpi-addto-detail a.mcpi-addto-open').target`), '_blank', 'a web install link opens in a new tab')
     assert.deepEqual(await find('nothing like this'), [])
     assert.equal(await b.run(`document.querySelector('.mcpi-addto-groups + .mcpi-addto-hint').hidden`), false)
     await b.run(`document.querySelector('dialog.mcpi-addto').close()`)

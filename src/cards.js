@@ -9,6 +9,7 @@
 import { h, copyButton } from './dom.js'
 import { hostOf, iconCandidates, countsText } from './lib.js'
 import { initialsOf, hueOf } from './initials.js'
+import { lineIcon } from './icons.js'
 
 /*
  * Icons: try the candidates in order. When none loads (no icon anywhere, or no network), the card shows one made
@@ -40,31 +41,12 @@ export function cardBody(s, sub) {
     s.desc ? h('span', { class: 'mcpi-card-desc', text: s.desc }) : null]
 }
 
-/* A chain-link icon, drawn so it follows the text color. */
-function linkIcon() {
-  const ns = 'http://www.w3.org/2000/svg'
-  const svg = document.createElementNS(ns, 'svg')
-  svg.setAttribute('viewBox', '0 0 24 24')
-  svg.setAttribute('width', '16')
-  svg.setAttribute('height', '16')
-  svg.setAttribute('aria-hidden', 'true')
-  for (const d of ['M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7', 'M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7']) {
-    const p = document.createElementNS(ns, 'path')
-    p.setAttribute('d', d)
-    p.setAttribute('fill', 'none')
-    p.setAttribute('stroke', 'currentColor')
-    p.setAttribute('stroke-width', '2')
-    p.setAttribute('stroke-linecap', 'round')
-    svg.append(p)
-  }
-  return svg
-}
-
 export function cardTools(link, onAdd, ui) {
   if (!link && !onAdd) return null
   return h('span', { class: 'mcpi-card-tools' },
-    onAdd ? h('button', { type: 'button', class: 'mcpi-card-ai', text: ui.addAiShort, title: ui.addAiBtn, 'aria-label': ui.addAiBtn, onclick: (e) => { e.stopPropagation(); onAdd() } }) : null,
-    link ? copyButton(link, { label: linkIcon, copied: '✓', cls: 'mcpi-card-share', title: ui.copyLink }) : null)
+    onAdd ? h('button', { type: 'button', class: 'mcpi-card-ai', title: ui.addAiTip, 'aria-label': ui.addAiTip, onclick: (e) => { e.stopPropagation(); onAdd() } }, lineIcon('ai', 15), h('span', { text: ui.addAiShort })) : null,
+    /* The inspector link, named so on the button: an icon alone does not say that it copies a link to this inspector. */
+    link ? copyButton(link, { label: () => h('span', { class: 'mcpi-card-share-in' }, lineIcon('flask', 14), h('span', { text: ui.testLink })), copied: () => h('span', { class: 'mcpi-card-share-in' }, lineIcon('check', 14), h('span', { text: ui.copied })), cls: 'mcpi-card-share', title: ui.copyLink }) : null)
 }
 
 export function cardOf(s, { ui, onOpen, onRemove, link, onAdd }) {
@@ -73,18 +55,21 @@ export function cardOf(s, { ui, onOpen, onRemove, link, onAdd }) {
     h('button', { type: 'button', class: 'mcpi-server mcpi-card', 'data-key': s.key, 'aria-pressed': 'false', onclick: () => onOpen(s) },
       cardBody(s), meta ? h('span', { class: 'mcpi-card-meta', text: meta }) : null),
     cardTools(link, onAdd && (() => onAdd(s)), ui),
-    s.custom ? h('button', { type: 'button', class: 'mcpi-remove', 'aria-label': ui.remove, title: ui.remove, text: '×', onclick: () => onRemove(s) }) : null)
+    s.custom ? h('button', { type: 'button', class: 'mcpi-remove', 'aria-label': ui.remove, title: ui.remove, onclick: () => onRemove(s) }, lineIcon('close', 14)) : null)
 }
 
 export function shareBox(link, ui, onAdd) {
   return [
     h('summary', { text: ui.share }),
-    h('p', { class: 'mcpi-label', text: ui.shareLink }),
+    /* Two links to pass on. The inspector link opens this server here, ready to try. */
+    h('p', { class: 'mcpi-label mcpi-share-kind' }, lineIcon('flask', 14), h('span', { text: ui.shareLink })),
     h('div', { class: 'mcpi-share-row' },
       h('input', { type: 'text', readonly: true, value: link, class: 'mcpi-share-link', 'aria-label': ui.shareLink, onfocus: (e) => e.target.select() }),
-      copyButton(link, { label: ui.copy, copied: ui.copied })),
+      copyButton(link, { label: () => lineIcon('copy'), copied: () => lineIcon('check'), cls: 'mcpi-btn mcpi-copy mcpi-icon-btn', title: ui.copy })),
     h('p', { class: 'mcpi-hint is-shown', text: ui.shareNote }),
-    h('p', { class: 'mcpi-label', text: ui.addAi }),
+    /* The connect link goes on to an AI client, so it is copied under the client picked in the popup. */
+    h('p', { class: 'mcpi-label mcpi-share-kind' }, lineIcon('plug', 14), h('span', { text: ui.addAi })),
     h('button', { type: 'button', class: 'mcpi-btn mcpi-add-ai', text: ui.addAiBtn, onclick: onAdd }),
+    h('p', { class: 'mcpi-hint is-shown', text: ui.connectNote }),
   ]
 }

@@ -93,6 +93,14 @@ export const ICONS = {
   perplexity: color(LOBE + 'perplexity-color.svg'),
   'copilot-studio': color(LOBE + 'copilot-color.svg'),
   manus: mono(LOBE + 'manus.svg'),
+  replit: color(LOBE + 'replit-color.svg'),
+  roo: mono(LOBE + 'roocode.svg'),
+  kimi: color(LOBE + 'kimi-color.svg'),
+  antigravity: color(LOBE + 'antigravity-color.svg'),
+  openhands: color(LOBE + 'openhands-color.svg'),
+  openwebui: mono(LOBE + 'openwebui.svg'),
+  vibe: color(LOBE + 'mistral-color.svg'),
+  'amazon-q': color(LOBE + 'aws-color.svg'),
 }
 
 /** The header token a server needs, by name: given, or from the headers it is set up with, or from what the registry says. */
@@ -122,7 +130,8 @@ function yaml(v, indent = '') {
 export const GROUPS = ['agent', 'editor', 'app']
 
 /*
- * Per AI client, how to add this server: [{ id, label, group, kind, link?, file?, code, steps?, settings?, note, get? }]
+ * Per AI client, how to add this server: [{ id, label, group, kind, link?, file?, code, steps?, settings?, note, get?, check? }]
+ *   check  where to see it is connected: a command to type (/mcp), or the key of a string that says where to look
  *   group  agent (terminal agents), editor (editors and IDEs), app (chat apps, set up on their websites)
  *   kind   link (one click, with the file to edit by hand), command, file, or settings (steps, with what to paste)
  *   note   a key of the strings, said under it (a token to put in, OAuth, or why it may not work there)
@@ -161,17 +170,17 @@ export function clientsFor(server, opts = {}) {
 
   const list = [
     /* ---- Terminal agents ---- */
-    { id: 'claude-code', group: 'agent', get: 'https://code.claude.com', label: 'Claude Code', kind: 'command', code: `claude mcp add --transport http ${name} ${url}` + (header ? ` --header "${header}: ${value}"` : ''), note: tokenNote },
+    { id: 'claude-code', group: 'agent', check: '/mcp', get: 'https://code.claude.com', label: 'Claude Code', kind: 'command', code: `claude mcp add --transport http ${name} ${url}` + (header ? ` --header "${header}: ${value}"` : ''), note: tokenNote },
     /* Codex sends a token only as Authorization: Bearer, read from an environment variable it is given the name of. */
     {
-      id: 'codex', group: 'agent', get: 'https://developers.openai.com/codex', label: 'Codex CLI', kind: 'command',
+      id: 'codex', group: 'agent', check: '/mcp', get: 'https://developers.openai.com/codex', label: 'Codex CLI', kind: 'command',
       code: secret && bearer ? `export ${env}="${bare}"\n${codex}` : codex,
       note: !header ? tokenNote : !bearer ? 'noHeader' : secret ? 'codexSecret' : 'codexToken', env,
     },
-    { id: 'gemini', group: 'agent', get: 'https://github.com/google-gemini/gemini-cli', label: 'Gemini CLI', kind: 'command', code: `gemini mcp add --transport http ${name} ${url}` + (header ? ` --header "${header}: ${value}"` : ''), note: tokenNote },
-    { id: 'copilot-cli', group: 'agent', get: 'https://github.com/features/copilot/cli', label: 'GitHub Copilot CLI', kind: 'command', code: `copilot mcp add --transport http` + (header ? ` --header "${header}: ${value}"` : '') + ` ${name} ${url}`, note: tokenNote },
+    { id: 'gemini', group: 'agent', check: '/mcp', get: 'https://github.com/google-gemini/gemini-cli', label: 'Gemini CLI', kind: 'command', code: `gemini mcp add --transport http ${name} ${url}` + (header ? ` --header "${header}: ${value}"` : ''), note: tokenNote },
+    { id: 'copilot-cli', group: 'agent', check: '/mcp', get: 'https://github.com/features/copilot/cli', label: 'GitHub Copilot CLI', kind: 'command', code: `copilot mcp add --transport http` + (header ? ` --header "${header}: ${value}"` : '') + ` ${name} ${url}`, note: tokenNote },
     /* opencode takes a header as KEY=VALUE, and --global keeps it for every project. */
-    { id: 'opencode', group: 'agent', get: 'https://opencode.ai', label: 'opencode', kind: 'command', code: `opencode mcp add ${name} --url ${url} --global` + (header ? ` --header '${header}=${value}'` : ''), note: tokenNote },
+    { id: 'opencode', group: 'agent', check: 'opencode mcp list', get: 'https://opencode.ai', label: 'opencode', kind: 'command', code: `opencode mcp add ${name} --url ${url} --global` + (header ? ` --header '${header}=${value}'` : ''), note: tokenNote },
     /* OpenClaw takes a header as KEY=VALUE, and signs in with OAuth through its own login command. */
     {
       id: 'openclaw', group: 'agent', get: 'https://docs.openclaw.ai', label: 'OpenClaw', kind: 'command',
@@ -192,16 +201,23 @@ export function clientsFor(server, opts = {}) {
     header
       ? { id: 'amp', group: 'agent', get: 'https://ampcode.com', label: 'Amp', kind: 'file', file: '~/.config/amp/settings.json', code: json({ 'amp.mcpServers': { [name]: plain } }), note: tokenNote }
       : { id: 'amp', group: 'agent', get: 'https://ampcode.com', label: 'Amp', kind: 'command', code: `amp mcp add ${name} ${url}`, note: tokenNote },
-    { id: 'qwen', group: 'agent', get: 'https://github.com/QwenLM/qwen-code', label: 'Qwen Code', kind: 'command', code: `qwen mcp add --transport http --scope user ${name} ${url}` + (header ? ` --header "${header}: ${value}"` : ''), note: tokenNote },
+    { id: 'qwen', group: 'agent', check: '/mcp', get: 'https://github.com/QwenLM/qwen-code', label: 'Qwen Code', kind: 'command', code: `qwen mcp add --transport http --scope user ${name} ${url}` + (header ? ` --header "${header}: ${value}"` : ''), note: tokenNote },
     /* Factory Droid tries OAuth unless told not to; a header token means it is not needed. */
-    { id: 'droid', group: 'agent', get: 'https://factory.ai', label: 'Factory Droid', kind: 'command', code: `droid mcp add ${name} ${url} --type http` + (header ? ` --header "${header}: ${value}" --no-oauth` : ''), note: tokenNote },
+    { id: 'droid', group: 'agent', check: '/mcp', get: 'https://factory.ai', label: 'Factory Droid', kind: 'command', code: `droid mcp add ${name} ${url} --type http` + (header ? ` --header "${header}: ${value}" --no-oauth` : ''), note: tokenNote },
     { id: 'augment', group: 'agent', get: 'https://www.augmentcode.com', label: 'Augment (auggie)', kind: 'command', code: `auggie mcp add ${name} --transport http --url ${url}` + (header ? ` --header "${header}:${value}"` : ''), note: tokenNote },
     /* Crush is set up in crushrc, where mcp add takes a header as two words. */
     { id: 'crush', group: 'agent', get: 'https://github.com/charmbracelet/crush', label: 'Crush', kind: 'file', file: '~/.config/crush/crushrc', code: `mcp add ${name} --type http --url ${q(url)}` + (header ? ` --header ${header} ${q(value)}` : ''), note: tokenNote },
+    /* Kimi Code CLI: an entry with a url and no transport is an HTTP server. */
+    { id: 'kimi', group: 'agent', check: '/mcp', get: 'https://github.com/MoonshotAI/kimi-code', label: 'Kimi Code CLI', kind: 'file', file: '~/.kimi-code/mcp.json', code: mcpServers(plain), note: tokenNote },
+    /* Mistral Vibe: without a header its add command signs in with OAuth when the server asks; a header token goes in config.toml. */
+    header
+      ? { id: 'vibe', group: 'agent', check: '/mcp', get: 'https://mistral.ai/products/vibe/', label: 'Mistral Vibe', kind: 'file', file: '~/.vibe/config.toml', code: `[[mcp_servers]]\nname = ${q(name)}\ntransport = "streamable-http"\nurl = ${q(url)}\n\n[mcp_servers.auth]\ntype = "static"\nheaders = { ${q(header)} = ${q(value)} }`, note: tokenNote }
+      : { id: 'vibe', group: 'agent', check: '/mcp', get: 'https://mistral.ai/products/vibe/', label: 'Mistral Vibe', kind: 'command', code: `vibe mcp add ${name} --url ${url}`, note: tokenNote },
+    { id: 'openhands', group: 'agent', check: 'chkOpenhands', get: 'https://docs.openhands.dev', label: 'OpenHands', kind: 'settings', steps: 'openhands', code: url, note: header ? 'tokenField' : server.oauth ? 'oauth' : '' },
     { id: 'warp', group: 'agent', get: 'https://www.warp.dev', label: 'Warp', kind: 'settings', steps: 'warp', code: mcpServers(plain), note: tokenNote },
 
     /* ---- Editors and IDEs ---- */
-    { id: 'vscode', group: 'editor', get: 'https://code.visualstudio.com/download', label: 'VS Code', kind: 'link', link: 'vscode:mcp/install?' + encodeURIComponent(JSON.stringify(vscode)), file: '.vscode/mcp.json', code: vscodeFile, note: header && !secret ? 'vscodeToken' : tokenNote },
+    { id: 'vscode', group: 'editor', check: 'chkVscode', get: 'https://code.visualstudio.com/download', label: 'VS Code', kind: 'link', link: 'vscode:mcp/install?' + encodeURIComponent(JSON.stringify(vscode)), file: '.vscode/mcp.json', code: vscodeFile, note: header && !secret ? 'vscodeToken' : tokenNote },
     {
       id: 'cursor', group: 'editor', get: 'https://cursor.com/downloads', label: 'Cursor', kind: 'link',
       link: 'cursor://anysphere.cursor-deeplink/mcp/install?name=' + encodeURIComponent(name) + '&config=' + b64json(plain),
@@ -209,7 +225,7 @@ export function clientsFor(server, opts = {}) {
     },
     /* Windsurf names the address serverUrl. */
     { id: 'windsurf', group: 'editor', get: 'https://windsurf.com/download', label: 'Windsurf', kind: 'file', file: '~/.codeium/windsurf/mcp_config.json', code: mcpServers({ serverUrl: url, headers }), note: tokenNote },
-    { id: 'vscode-insiders', group: 'editor', get: 'https://code.visualstudio.com/insiders', label: 'VS Code Insiders', kind: 'link', link: 'vscode-insiders:mcp/install?' + encodeURIComponent(JSON.stringify(vscode)), file: '.vscode/mcp.json', code: vscodeFile, note: header && !secret ? 'vscodeToken' : tokenNote },
+    { id: 'vscode-insiders', group: 'editor', check: 'chkVscode', get: 'https://code.visualstudio.com/insiders', label: 'VS Code Insiders', kind: 'link', link: 'vscode-insiders:mcp/install?' + encodeURIComponent(JSON.stringify(vscode)), file: '.vscode/mcp.json', code: vscodeFile, note: header && !secret ? 'vscodeToken' : tokenNote },
     /* Visual Studio's install link is a web page that hands it on; its docs show no headers, so a token may need its settings. */
     {
       id: 'visual-studio', group: 'editor', get: 'https://visualstudio.microsoft.com/downloads/', label: 'Visual Studio', kind: 'link',
@@ -222,6 +238,10 @@ export function clientsFor(server, opts = {}) {
       link: `https://kiro.dev/launch/mcp/add?name=${encodeURIComponent(name)}&config=${encodeURIComponent(JSON.stringify(unsent))}`,
       file: '~/.kiro/settings/mcp.json', code: mcpServers(plain), note: tokenNote,
     },
+    /* Google Antigravity names the address serverUrl, and takes Streamable HTTP only. */
+    { id: 'antigravity', group: 'editor', check: 'chkAntigravity', get: 'https://antigravity.google/download', label: 'Google Antigravity', kind: 'file', file: '~/.gemini/config/mcp_config.json', code: mcpServers({ serverUrl: url, headers }), note: tokenNote },
+    { id: 'roo', group: 'editor', check: 'chkRoo', get: 'https://github.com/RooCodeInc/Roo-Code', label: 'Roo Code', kind: 'file', file: '.roo/mcp.json', code: mcpServers({ type: 'streamable-http', url, headers }), note: tokenNote },
+    { id: 'amazon-q', group: 'editor', check: 'chkAmazonQ', get: 'https://aws.amazon.com/q/developer/', label: 'Amazon Q Developer', kind: 'settings', steps: 'amazonQ', code: url, note: header ? 'tokenField' : tokenNote },
     { id: 'zed', group: 'editor', get: 'https://zed.dev/download', label: 'Zed', kind: 'file', file: '~/.config/zed/settings.json', code: json({ context_servers: { [name]: plain } }), note: tokenNote },
     { id: 'jetbrains', group: 'editor', get: 'https://www.jetbrains.com/ai-assistant/', label: 'JetBrains AI Assistant', kind: 'settings', steps: 'jetbrains', code: mcpServers({ url }), note: header ? 'headerUnsure' : tokenNote },
     { id: 'junie', group: 'editor', get: 'https://www.jetbrains.com/junie/', label: 'Junie', kind: 'file', file: '~/.junie/mcp/mcp.json', code: mcpServers(plain), note: tokenNote },
@@ -248,6 +268,14 @@ export function clientsFor(server, opts = {}) {
     { id: 'lechat', group: 'app', label: 'Mistral Le Chat', kind: 'settings', settings: 'https://chat.mistral.ai', steps: 'lechat', code: url, note: header ? 'tokenField' : server.oauth ? 'oauth' : '' },
     { id: 'perplexity', group: 'app', label: 'Perplexity', kind: 'settings', settings: 'https://www.perplexity.ai/computer/plugins', steps: 'perplexity', code: url, note: header ? 'tokenField' : server.oauth ? 'oauth' : '' },
     { id: 'copilot-studio', group: 'app', label: 'Copilot Studio', kind: 'settings', settings: 'https://copilotstudio.microsoft.com', steps: 'copilotStudio', code: url, note: header ? 'tokenField' : server.oauth ? 'oauth' : '' },
+    /* Replit's install link is a web page: the server as Base64 JSON. It passes through replit.com, so it never carries the token. */
+    {
+      id: 'replit', group: 'app', check: 'chkReplit', get: 'https://replit.com', label: 'Replit', kind: 'link',
+      link: 'https://replit.com/integrations?mcp=' + b64json({ displayName: title, baseUrl: url, headers: header ? [{ key: header, value: bearer ? 'Bearer <token>' : '<token>' }] : undefined }),
+      file: 'Settings → Integrations → Add custom → Add personal MCP server', code: url, note: header ? 'tokenField' : server.oauth ? 'oauth' : '',
+    },
+    { id: 'librechat', group: 'app', check: 'chkLibrechat', get: 'https://www.librechat.ai', label: 'LibreChat', kind: 'settings', steps: 'librechat', code: url, note: header ? 'tokenField' : server.oauth ? 'oauth' : '' },
+    { id: 'openwebui', group: 'app', get: 'https://openwebui.com', label: 'Open WebUI', kind: 'settings', steps: 'openwebui', code: url, note: header ? 'tokenField' : server.oauth ? 'oauth' : '' },
     { id: 'manus', group: 'app', label: 'Manus', kind: 'settings', settings: 'https://manus.im', steps: 'manus', code: url, note: header ? 'tokenField' : server.oauth ? 'oauth' : '' },
   ]
   /* A one-click link that holds the token opens an app on this computer; it is not one to send anyone. */

@@ -22,14 +22,18 @@
  *                registryApi: the registry API (default the official one), icons: false or { clientId: url },
  *                mobile: true or false to override the phone or tablet check,
  *                client: the client to open on, verified: say the server was checked and answers,
- *                autoOpen: try that client's one-click link at once (the browser may ask, or need the button pressed) }
+ *                autoOpen: try that client's one-click link at once (the browser may ask, or need the button pressed),
+ *                shareLink(client): a link of the page using this component, drawn as a copy button under each client
+ *                (the inspector gives two: its own link to the server, and one that tests it and comes back to that client);
+ *                a string, or a list of { url, label?, hint?, icon? } }
  *
  * The popup groups the clients (terminal agents, editors and IDEs, chat apps) under a search box.
  * On a phone or tablet only the chat apps (their websites) can be set up. The popup says so at the top, lists them first,
  * and marks the others Computer only: their one-click button is off, and their setup is still there to copy and send to a computer.
  *
  * Each client is added the most direct way it allows:
- *   link       one click: the client's own install link (VS Code, Cursor, Goose, Kiro, Visual Studio, LM Studio, Trae)
+ *   link       one click: the client's own install link (VS Code, Cursor, Goose, Kiro, Visual Studio, LM Studio, Trae, Replit);
+ *              these lead the list, and pressing the tile opens the link at once
  *   command    one command to run in a terminal (Claude Code, Codex, Gemini CLI, Copilot CLI, opencode, OpenClaw, Qwen Code, …)
  *   file       a config file to edit (Windsurf, Zed, Junie, Kilo Code, Continue, Crush, …)
  *   settings   steps in the app's settings, with what to paste (Claude, ChatGPT, Gemini, Le Chat, Perplexity, Warp, …)
@@ -107,6 +111,30 @@ export function watchOpen(missed, ms = 2500, win = typeof window !== 'undefined'
   }, ms)
 }
 
+/* Line icons in the text color, drawn the same way as the inspector's own (close, copy, and the check after copying). */
+const LINES = {
+  close: ['M6 6l12 12', 'M18 6L6 18'],
+  copy: ['M9 9h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1z', 'M16 5V4a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h1'],
+  check: ['M5 12.5l4.5 4.5L19 7.5'],
+  retry: ['M20 12a8 8 0 1 1-2.34-5.66', 'M20 4v4h-4'],
+  external: ['M14 4h6v6', 'M20 4l-9 9', 'M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5'],
+  /* A plug with a spark in it: the connect link. A flask: a link to a page where the server can be tried (the inspector's own). */
+  plug: ['M9 2v5', 'M15 2v5', 'M6 7h12v4a6 6 0 0 1-12 0V7z', 'M12 17v5', 'M12.8 8.6l-2.2 2.9h2.8l-2.2 2.9'],
+  flask: ['M9 3h6', 'M10 3v6l-5.2 9a2 2 0 0 0 1.7 3h11a2 2 0 0 0 1.7-3L14 9V3', 'M7.5 15h9'],
+}
+const closeIcon = () => lineIcon('close', 18)
+function lineIcon(name, size = 16) {
+  const ns = 'http://www.w3.org/2000/svg'
+  const svg = document.createElementNS(ns, 'svg')
+  for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', width: String(size), height: String(size), 'aria-hidden': 'true' })) svg.setAttribute(k, v)
+  for (const d of LINES[name]) {
+    const p = document.createElementNS(ns, 'path')
+    for (const [k, v] of Object.entries({ d, fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round' })) p.setAttribute(k, v)
+    svg.append(p)
+  }
+  return svg
+}
+
 const LAST = 'mcpi:add-to-ai:last'
 const remembered = () => { try { return localStorage.getItem(LAST) } catch (e) { return null } }
 const remember = (id) => { try { localStorage.setItem(LAST, id) } catch (e) { /* storage blocked */ } }
@@ -127,36 +155,68 @@ export function openAddToAi(server, opts = {}) {
   const asked = opts.client ? clients.find((c) => c.id === opts.client) : null
 
   const copyable = (text) => {
-    const b = el('button', { type: 'button', class: 'mcpi-addto-copy', text: t.copy, 'data-copy': text })
+    /* An icon; the word is its tooltip and its name for screen readers, and turns to "Copied" with a check for a moment. */
+    const b = el('button', { type: 'button', class: 'mcpi-addto-copy is-icon', 'data-copy': text })
+    const show = (icon, word) => { b.replaceChildren(lineIcon(icon)); b.title = word; b.setAttribute('aria-label', word); b.classList.toggle('is-done', icon === 'check') }
+    show('copy', t.copy)
     b.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(text); b.textContent = t.copied } catch (e) { b.textContent = '✕' }
-      setTimeout(() => { b.textContent = t.copy }, 1500)
+      try { await navigator.clipboard.writeText(text); show('check', t.copied) } catch (e) { show('close', t.copy) }
+      setTimeout(() => show('copy', t.copy), 1500)
     })
     return el('div', { class: 'mcpi-addto-code' }, el('pre', { text }), b)
   }
 
+  /* The buttons under a client's way to add it: an icon and a word, all the same quiet size. */
+  const act = (tag, icon, text, attrs = {}) => el(tag, Object.assign({}, attrs, { class: ('mcpi-addto-go is-quiet ' + (attrs.class || '')).trim() }), lineIcon(icon), el('span', { text }))
+  const newTab = (href, cls) => ({ href, target: '_blank', rel: 'noopener', class: cls })
+  /* A button that copies a link, says Copied with a check for a moment, and explains in its tooltip what the link is. */
+  const copyAct = (icon, text, value, hint, cls) => {
+    const b = act('button', icon, text, { type: 'button', class: cls, 'data-copy': value, title: hint })
+    b.addEventListener('click', async () => {
+      const word = b.querySelector('span')
+      try { await navigator.clipboard.writeText(value); b.replaceChildren(lineIcon('check'), el('span', { text: t.copied })); b.classList.add('is-done') } catch (e) { return }
+      setTimeout(() => { b.replaceChildren(lineIcon(icon), word); b.classList.remove('is-done') }, 1500)
+    })
+    return b
+  }
+  /* The client's own website (where to get it). */
+  const getBtn = (c) => (c.get ? act('a', 'external', fill(t.getIt, { v: c.label }), newTab(c.get, 'mcpi-addto-get')) : null)
+  /*
+   * A link the page using this component makes (opts.shareLink(client)): for the inspector, the page that opens this server,
+   * tests it, and comes back to this client. The component draws the button only; what the link is belongs to that page.
+   */
+  const shared = (c) => {
+    const got = typeof opts.shareLink === 'function' ? opts.shareLink(c) : null
+    /* One link (the connect link), or several, each { url, label?, hint?, icon? } with icon one of plug, flask, copy. */
+    return [].concat(got || []).map((x) => (typeof x === 'string' ? { url: x } : x)).filter((x) => x && x.url).map((x) =>
+      copyAct(LINES[x.icon] ? x.icon : 'plug', x.label || fill(t.shareThis, { v: c.label }), x.url, x.hint || fill(t.shareThisHint, { v: c.label }), 'mcpi-addto-share is-' + (LINES[x.icon] ? x.icon : 'plug')))
+  }
+
   function detail(c) {
     const out = []
+    let openLink = null
     const away = mobile && !worksOnPhone(c)
     /* On a phone, say first that this one is for a computer; what to copy still follows. */
     if (away) out.push(el('p', { class: 'mcpi-addto-away', text: fill(t.mobileNo, { v: c.label }) }))
     if (mobile && worksOnPhone(c)) out.push(el('p', { class: 'mcpi-addto-hint', text: fill(t.mobileWeb, { v: c.label }) }))
     if (c.kind === 'link') {
-      const manual = el('details', { class: 'mcpi-addto-manual', open: away }, el('summary', { text: t.manual }), el('p', { class: 'mcpi-addto-hint' }, el('code', { text: c.file })), copyable(c.code))
-      /* Nothing opened: say why it may be, with a button to try the link again (once the app is installed or let through). */
-      const again = el('button', { type: 'button', class: 'mcpi-addto-copy mcpi-addto-again', text: t.tryAgain, onclick: () => { missed.hidden = true; go.click() } })
-      const missed = el('div', { class: 'mcpi-addto-away', hidden: true, role: 'status' }, el('p', { text: fill(t.notOpened, { v: c.label }) }),
-        el('div', { class: 'mcpi-addto-row' }, again, c.get ? el('a', { class: 'mcpi-addto-get', href: c.get, target: '_blank', rel: 'noopener', text: fill(t.getIt, { v: c.label }) }) : null))
-      const go = away
-        ? el('span', { class: 'mcpi-addto-go is-off', 'aria-disabled': 'true', text: fill(t.addIn, { v: c.label }) })
-        : el('a', { class: 'mcpi-addto-go', href: c.link, text: fill(t.addIn, { v: c.label }), target: /^https:/.test(c.link) ? '_blank' : null, rel: /^https:/.test(c.link) ? 'noopener' : null })
       /*
-       * An install link opens the app, or a browser prompt asking to. Either takes focus from the page.
-       * When nothing does within a few seconds, the app is likely missing: say so and open the by-hand setup.
+       * Pressing the tile already opened the link, so there is no second add button: what shows is what it did,
+       * what to do when nothing opened, and the file to edit by hand.
        */
-      /* A web page link (Kiro, Visual Studio) opens a tab that hands on to the app, so there is nothing to watch. */
-      if (!away && !/^https:/.test(c.link)) go.addEventListener('click', () => watchOpen(() => { missed.hidden = false; manual.open = true }))
-      out.push(go, away ? null : el('p', { class: 'mcpi-addto-hint', text: fill(t.linkHint, { v: c.label }) }),
+      const manual = el('details', { class: 'mcpi-addto-manual', open: away }, el('summary', { text: t.manual }), el('p', { class: 'mcpi-addto-hint' }, el('code', { text: c.file })), copyable(c.code))
+      const missed = el('p', { class: 'mcpi-addto-away', hidden: true, role: 'status', text: fill(t.notOpened, { v: c.label }) })
+      const web = /^https:/.test(c.link)
+      if (!away) {
+        openLink = act('a', 'retry', t.tryAgain, Object.assign(web ? newTab(c.link) : { href: c.link }, { class: 'mcpi-addto-open' }))
+        /*
+         * An install link opens the app, or a browser prompt asking to. Either takes focus from the page.
+         * When nothing does within a few seconds, the app is likely missing: say so and open the by-hand setup.
+         * A web page link (Kiro, Visual Studio, Replit) opens a tab that hands on to the app, so there is nothing to watch.
+         */
+        openLink.addEventListener('click', () => { missed.hidden = true; if (!web) watchOpen(() => { missed.hidden = false; manual.open = true }) })
+      }
+      out.push(away ? null : el('p', { class: 'mcpi-addto-hint', text: fill(t.linkHint, { v: c.label }) }),
         c.secretInLink && !away ? el('p', { class: 'mcpi-addto-note', 'data-warn': 'link-secret', text: fill(t.linkSecret, { v: c.label }) }) : null, missed, manual)
     } else if (c.kind === 'command') {
       out.push(el('p', { text: t.run }), copyable(c.code))
@@ -164,11 +224,24 @@ export function openAddToAi(server, opts = {}) {
       out.push(el('p', null, t.openFile + ' ', el('code', { text: c.file })), copyable(c.code))
     } else {
       const steps = t[c.steps] || []
-      out.push(el('ol', { class: 'mcpi-addto-steps' }, steps.map((s) => el('li', { text: s }))), copyable(c.code),
-        c.settings ? el('a', { class: 'mcpi-addto-go is-quiet', href: c.settings, target: '_blank', rel: 'noopener', text: fill(t.openSettings, { v: c.label }) }) : null)
+      out.push(el('ol', { class: 'mcpi-addto-steps' }, steps.map((s) => el('li', { text: s }))), copyable(c.code))
     }
     if (c.note) out.push(el('p', { class: 'mcpi-addto-note', text: fill(t[c.note], { v: c.label, h: header, env: c.env }) }))
-    if (c.get) out.push(el('a', { class: 'mcpi-addto-get', href: c.get, target: '_blank', rel: 'noopener', text: fill(t.getIt, { v: c.label }) }))
+    /* Where to look, in the client, to see that the server is connected: a command to type, or a place in its settings. */
+    if (c.check) out.push(el('p', { class: 'mcpi-addto-hint mcpi-addto-check' }, t.checkIt + ' ', t[c.check] ? t[c.check] : el('code', { text: c.check })))
+    /*
+     * One row of buttons for every client: open the install link again, copy it to send (never when it holds your token),
+     * open the client's settings or website, and the link the page using this component offers (the inspector's: this whole view).
+     */
+    const settings = c.kind === 'settings' && c.settings ? act('a', 'external', fill(t.openSettings, { v: c.label }), newTab(c.settings)) : null
+    /*
+     * One link to pass on, never two: the page's own (shareLink, which opens the server, tests it and comes back here),
+     * or else, with none given, the client's install link itself (never when it holds your token).
+     */
+    const share = shared(c)
+    const install = !share.length && c.kind === 'link' && !c.secretInLink && !(mobile && !worksOnPhone(c)) ? copyAct('copy', t.copyInstall, c.link, fill(t.copyInstallHint, { v: c.label }), 'mcpi-addto-install') : null
+    const row = [openLink, settings, getBtn(c), ...share, install].filter(Boolean)
+    if (row.length) out.push(el('div', { class: 'mcpi-addto-row mcpi-addto-acts' }, row))
     return out
   }
 
@@ -180,22 +253,50 @@ export function openAddToAi(server, opts = {}) {
   const secretBox = hasSecret ? el('label', { class: 'mcpi-addto-secret' },
     el('input', { type: 'checkbox', checked: withSecret, onchange: (e) => { withSecret = e.target.checked; clients = clientsFor(server, { secret: withSecret }); choose(pane.dataset.client) } }),
     el('span', null, el('b', { text: t.withSecret }), el('small', { text: t.withSecretHint }))) : null
+  /*
+   * The picked client's way to add it opens right under the row its tile is in, across the whole row.
+   * Rows depend on the popup's width, so it is placed again when the window resizes or a search hides tiles.
+   */
+  function place() {
+    const on = tiles.querySelector('.mcpi-addto-tile.is-on')
+    if (!on || on.hidden || on.closest('[hidden]')) { none.after(pane); return }
+    let last = on
+    for (const b of on.parentElement.querySelectorAll('.mcpi-addto-tile')) if (!b.hidden && b.offsetTop === on.offsetTop) last = b
+    if (last.nextElementSibling !== pane) last.after(pane)
+  }
+  /*
+   * A one-click client is added by the press on its tile itself: its link opens at once, and what shows under it is for when nothing opens.
+   * Pressing the same tile again only tries the link again: what is under it stays as it is, so nothing jumps.
+   */
+  function start() {
+    const go = pane.querySelector('a.mcpi-addto-open')
+    if (go) go.click()
+  }
   function choose(id) {
     const c = clients.find((x) => x.id === id) || clients[0]
     for (const b of tileEls()) { const on = b.dataset.client === c.id; b.classList.toggle('is-on', on); b.setAttribute('aria-checked', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1 }
     pane.dataset.client = c.id
     pane.replaceChildren(...detail(c).filter(Boolean))
+    place()
     remember(c.id)
   }
   /* On a phone, the chat apps it can set up come first; the others say they are for a computer. */
-  const groups = mobile ? ['app'].concat(GROUPS.filter((g) => g !== 'app')) : GROUPS
-  const order = groups.flatMap((g) => clients.filter((c) => c.group === g))
+  /*
+   * The clients with a one-click link come first, in a group of their own (editors before agents); the rest follow in their groups.
+   * On a phone the chat apps lead, since only they can be set up there.
+   */
+  const LINK_ORDER = ['editor', 'app', 'agent']
+  const groupOf = (c) => (c.kind === 'link' ? 'link' : c.group)
+  const all = ['link'].concat(GROUPS)
+  const groups = mobile ? ['app'].concat(all.filter((g) => g !== 'app')) : all
+  const inGroup = (g) => clients.filter((c) => groupOf(c) === g).sort((a, b) => (g === 'link' ? LINK_ORDER.indexOf(a.group) - LINK_ORDER.indexOf(b.group) : 0))
+  const order = groups.flatMap(inGroup)
   tiles.append(...groups.map((g) => el('section', { class: 'mcpi-addto-group', 'data-group': g },
     el('p', { class: 'mcpi-addto-group-name', text: t['g_' + g] }),
-    el('div', { class: 'mcpi-addto-tiles' }, clients.filter((c) => c.group === g).map((c) => {
+    el('div', { class: 'mcpi-addto-tiles' }, inGroup(g).map((c) => {
       const away = mobile && !worksOnPhone(c)
-      return el('button', { type: 'button', class: 'mcpi-addto-tile' + (away ? ' is-away' : ''), role: 'radio', 'aria-checked': 'false', 'data-client': c.id, 'data-find': (c.label + ' ' + c.id + ' ' + t['g_' + g]).toLowerCase(), onclick: () => choose(c.id) },
-        iconOf(c.id, opts, c.label), el('b', { text: c.label }), el('span', { text: away ? t.computerOnly : t[c.kind] }))
+      return el('button', { type: 'button', class: 'mcpi-addto-tile' + (away ? ' is-away' : ''), role: 'radio', 'aria-checked': 'false', 'data-client': c.id, 'data-find': (c.label + ' ' + c.id + ' ' + t['g_' + g] + ' ' + t['g_' + c.group]).toLowerCase(), onclick: () => { if (pane.dataset.client !== c.id) choose(c.id); if (c.kind === 'link' && !away) start() } },
+        iconOf(c.id, opts, c.label), el('b', { text: c.label }), el('span', { text: away ? t.computerOnly : c.kind === 'link' ? t.tapAdds : t[c.kind] }))
     })))))
   /*
    * Keys, as in a radio group: Tab reaches the picked tile, arrows move through the tiles that show (in reading order),
@@ -220,6 +321,7 @@ export function openAddToAi(server, opts = {}) {
     for (const b of tileEls()) b.hidden = !words.every((w) => b.dataset.find.includes(w))
     for (const sec of tiles.children) sec.hidden = ![...sec.querySelectorAll('.mcpi-addto-tile')].some((b) => !b.hidden)
     none.hidden = tileEls().some((b) => !b.hidden)
+    place()
   })
   search.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return
@@ -228,24 +330,33 @@ export function openAddToAi(server, opts = {}) {
     if (first) choose(first.dataset.client)
   })
 
+  /* What any client needs to connect by hand: always shown, under the picked client's own way. */
+  const authLine = header ? fill(t.anyHeader, { h: header }) : server.oauth ? t.anyOauth : ''
+  const anyBox = el('section', { class: 'mcpi-addto-any' },
+    el('p', { class: 'mcpi-addto-group-name', text: t.anyTitle }), copyable(server.url),
+    el('p', { class: 'mcpi-addto-hint', text: [t.anyHint, authLine].filter(Boolean).join(' ') }))
+
   const dialog = el('dialog', { class: 'mcpi-addto', 'aria-label': fill(t.title, { v: title }) },
     el('div', { class: 'mcpi-addto-head' },
       el('div', null, el('h2', { text: fill(t.title, { v: title }) }), el('code', { text: server.url })),
-      el('button', { type: 'button', class: 'mcpi-addto-close', text: t.close, onclick: () => dialog.close() })),
+      el('button', { type: 'button', class: 'mcpi-addto-close', 'aria-label': t.close, title: t.close, onclick: () => dialog.close() }, closeIcon())),
     mobile ? el('p', { class: 'mcpi-addto-mobile', text: t.mobileBanner }) : null,
     asked && opts.verified ? el('p', { class: 'mcpi-addto-ok', role: 'status', text: fill(t.verified, { s: title, v: asked.label }) }) : null,
-    el('p', { class: 'mcpi-addto-label', text: t.pick }), search, tiles, none, secretBox, pane)
+    el('p', { class: 'mcpi-addto-label', text: t.pick }), search, tiles, none, secretBox, anyBox)
   dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close() })
   /* Focus goes back to what opened the popup (the button on a card), so the keyboard is where it was. */
   const opener = typeof document !== 'undefined' ? document.activeElement : null
-  dialog.addEventListener('close', () => { dialog.remove(); if (opener && opener.isConnected && opener.focus) opener.focus() })
+  const onResize = () => place()
+  window.addEventListener('resize', onResize)
+  dialog.addEventListener('close', () => { window.removeEventListener('resize', onResize); dialog.remove(); if (opener && opener.isConnected && opener.focus) opener.focus() })
   ;(opts.root || document.body).append(dialog)
   /* The client asked for (a link's &to=), else the one picked last, unless this is a phone and it needs a computer. */
   const last = clients.find((c) => c.id === remembered())
   choose(asked ? asked.id : last && !(mobile && !worksOnPhone(last)) ? last.id : order[0].id)
   dialog.showModal()
   search.focus()
-  /* The picked tile may sit further down the list: bring it into view. */
+  /* Rows are known only once it shows: place the way to add it under the picked tile's row, and bring the tile into view. */
+  place()
   const on = tiles.querySelector('.mcpi-addto-tile.is-on')
   if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest' })
   /*
@@ -254,7 +365,7 @@ export function openAddToAi(server, opts = {}) {
    * A web page link (Kiro, Visual Studio) would be a blocked pop-up, so it waits for the press.
    */
   if (asked && opts.autoOpen && asked.kind === 'link' && !mobile && !/^https:/.test(asked.link)) {
-    const go = pane.querySelector('a.mcpi-addto-go')
+    const go = pane.querySelector('a.mcpi-addto-open')
     if (go) go.click()
   }
   return dialog
