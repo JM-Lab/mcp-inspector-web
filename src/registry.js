@@ -15,6 +15,13 @@ import { h } from './dom.js'
 import { cardBody, cardTools } from './cards.js'
 import { REG_FIRST, registryCards, featuredFor } from './lib.js'
 
+/* An answer that is not a success is a failure, even with a JSON body (a 500 with {} must not read as "nothing found"). */
+async function getJson(url) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error('HTTP ' + res.status)
+  return res.json()
+}
+
 export function registryPanel({ cfg, ui, onPick, linkOf, onAdd, onRender = () => {} }) {
   const input = h('input', { type: 'search', placeholder: ui.regSearch, spellcheck: 'false', autocomplete: 'off', 'aria-label': 'MCP Registry' })
   const list = h('div', { class: 'mcpi-cards mcpi-reg-list' })
@@ -28,7 +35,7 @@ export function registryPanel({ cfg, ui, onPick, linkOf, onAdd, onRender = () =>
 
   let featured = null
   async function featuredList() {
-    if (!featured) featured = typeof cfg.featured === 'string' ? await (await fetch(cfg.featured)).json() : cfg.featured
+    if (!featured) featured = typeof cfg.featured === 'string' ? await getJson(cfg.featured) : cfg.featured
     return featured
   }
   let recent = null
@@ -38,7 +45,7 @@ export function registryPanel({ cfg, ui, onPick, linkOf, onAdd, onRender = () =>
     const all = []
     let cursor = ''
     for (let i = 0; i < 3; i++) {
-      const json = await (await fetch(cfg.registry + '?version=latest&limit=100&updated_since=' + encodeURIComponent(since) + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''))).json()
+      const json = await getJson(cfg.registry + '?version=latest&limit=100&updated_since=' + encodeURIComponent(since) + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''))
       all.push(...(json.servers || []))
       cursor = json.metadata && json.metadata.nextCursor
       if (!cursor) break
@@ -62,7 +69,7 @@ export function registryPanel({ cfg, ui, onPick, linkOf, onAdd, onRender = () =>
     onRender()
     let cards = []
     try {
-      if (searching) cards = registryCards((await (await fetch(cfg.registry + '?version=latest&limit=40&search=' + encodeURIComponent(q))).json()).servers)
+      if (searching) cards = registryCards((await getJson(cfg.registry + '?version=latest&limit=40&search=' + encodeURIComponent(q))).servers)
       else if (filter === 'recent') cards = await recentServers()
       else cards = featuredFor(filter, await featuredList())
     } catch (e) {

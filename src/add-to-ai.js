@@ -214,7 +214,9 @@ export function openAddToAi(server, opts = {}) {
          * When nothing does within a few seconds, the app is likely missing: say so and open the by-hand setup.
          * A web page link (Kiro, Visual Studio, Replit) opens a tab that hands on to the app, so there is nothing to watch.
          */
-        openLink.addEventListener('click', () => { missed.hidden = true; if (!web) watchOpen(() => { missed.hidden = false; manual.open = true }) })
+        /* Only the latest press may say that nothing opened: an earlier press's wait must not bring the notice back over a new try. */
+        let tries = 0
+        openLink.addEventListener('click', () => { const mine = ++tries; missed.hidden = true; if (!web) watchOpen(() => { if (mine === tries) { missed.hidden = false; manual.open = true } }) })
       }
       out.push(away ? null : el('p', { class: 'mcpi-addto-hint', text: fill(t.linkHint, { v: c.label }) }),
         c.secretInLink && !away ? el('p', { class: 'mcpi-addto-note', 'data-warn': 'link-secret', text: fill(t.linkSecret, { v: c.label }) }) : null, missed, manual)

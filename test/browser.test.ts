@@ -75,7 +75,10 @@ before(async () => {
     if (path === '/mcp-inspector.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(js); return }
     if (path.startsWith('/registry/')) {
       const name = decodeURIComponent(path.replace('/registry/v0/servers/', '').replace('/versions/latest', ''))
-      const body = path === '/registry/v0/servers' ? { servers: full.searchParams.get('search') ? found : [], metadata: {} } : registry[name as keyof typeof registry]
+      const q = full.searchParams.get('search')
+      if (path === '/registry/v0/servers' && q === 'fail') { res.writeHead(500); res.end('{}'); return }
+      const many = Array.from({ length: 8 }, (_, i) => ({ server: { name: 'io.test/many-' + i, title: 'Many ' + i, remotes: [{ type: 'streamable-http', url: 'https://many' + i + '.example/mcp' }] } }))
+      const body = path === '/registry/v0/servers' ? { servers: q === 'many' ? many : q ? found : [], metadata: {} } : registry[name as keyof typeof registry]
       res.writeHead(body ? 200 : 404, { 'content-type': 'application/json' }); res.end(JSON.stringify(body || { error: 'not found' })); return
     }
     if (path === '/lib.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(lib); return }
@@ -466,6 +469,102 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.equal(await b.run(`el.childElementCount + '|' + el.classList.contains('mcpi') + '|' + (el.inspector === null)`), '0|false|true')
   })
 
+  await t.test('a resource template is filled in and read, and a resource is subscribed to and let go', async () => {
+    await open('?u=' + mcp.base + '/rich-mcp')
+    await b.until(`$t.status() === 'Connected'`)
+    assert.equal(await b.run(`$t.count('Resources')`), 2, 'the resource and the template')
+    await b.run(`$t.tab('Resources').click(); [...document.querySelectorAll('.mcpi-pick')].find((x) => x.textContent.includes('item')).click()`)
+    await b.run(`$t.set($t.field('id'), '7'); $t.run()`)
+    await b.until(`$t.out().includes('item 7')`)
+    await b.run(`[...document.querySelectorAll('.mcpi-pick')].find((x) => x.textContent === 'clock').click()`)
+    const sub = `[...document.querySelectorAll('.mcpi-pane .mcpi-btn')].find((x) => /subscribe/i.test(x.textContent))`
+    assert.equal(await b.run(sub + '.textContent'), 'Subscribe')
+    await b.run(sub + '.click()')
+    await b.until(sub + `.textContent === 'Unsubscribe' && ${sub}.getAttribute('aria-pressed') === 'true'`)
+    await b.run(sub + '.click()')
+    await b.until(sub + `.textContent === 'Subscribe'`)
+  })
+
+  await t.test('a form says what is wrong before sending, an answer shows as JSON, and the log level is set', async () => {
+    await open('?s=local')
+    await b.until(`$t.status() === 'Connected'`)
+    await b.run(`$t.pick('slow'); $t.set($t.field('steps'), 'abc'); $t.run()`)
+    assert.equal(await b.run(`$t.field('steps').closest('.mcpi-field').classList.contains('is-bad')`), true, 'a number field with text is flagged')
+    assert.equal(await b.run(`$t.out()`), '', 'and nothing is sent')
+    await b.run(`$t.pick('echo'); $t.set($t.field('text'), 'json please'); $t.run()`)
+    await b.until(`$t.out().includes('json please')`)
+    await b.run(`document.querySelector('.mcpi-pane .mcpi-json').click()`)
+    assert.equal(await b.run(`document.querySelector('.mcpi-pane .mcpi-json').getAttribute('aria-pressed')`), 'true')
+    assert.match(await b.run(`$t.out()`), /"type": "text"/, 'the whole answer, as JSON')
+    await b.run(`(() => { const l = document.querySelector('.mcpi-level'); l.value = 'error'; l.dispatchEvent(new Event('change')) })()`)
+    await b.run(`$t.tab('Debug').click()`)
+    await b.until(`[...document.querySelectorAll('.mcpi-dbg-rows *')].some((x) => x.textContent.includes('logging/setLevel'))`, 4000)
+  })
+
+  await t.test('example chips fill in a tool form', async () => {
+    await b.go(origin + '/lib.html')
+    await b.run(HELPERS)
+    const servers = [{ key: 'ex', name: 'Examples', url: mcp.base + '/mcp', examples: [{ tool: 'echo', args: { text: 'from a chip' }, label: { en: 'Say it', ko: '말하기' } }] }]
+    await b.run(`window.inst = MCPI.mount(document.querySelector('#x'), { registry: null, servers: ${JSON.stringify(servers)}, syncUrl: false }); true`)
+    await b.until(`$t.status() === 'Connected'`)
+    await b.run(`$t.pick('echo')`)
+    const chip = `[...document.querySelectorAll('.mcpi-examples .mcpi-chip')].find((x) => x.textContent === 'Say it')`
+    await b.run(chip + '.click()')
+    assert.equal(await b.run(`$t.field('text').value + '|' + ${chip}.classList.contains('is-on')`), 'from a chip|true')
+    await b.run(`inst.destroy(); true`)
+  })
+
+  await t.test('the registry list shows more on request, and says when the registry does not answer', async () => {
+    await open()
+    const search = (q: string) => b.run(`(() => { const i = document.querySelector('.mcpi-reg-bar input'); i.value = '${q}'; i.dispatchEvent(new Event('input')) })()`)
+    await search('many')
+    await b.until(`document.querySelectorAll('.mcpi-reg').length === 8`, 4000)
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-reg-list .mcpi-card-wrap[hidden]').length + '|' + document.querySelector('.mcpi-reg-more').hidden`), '2|false', 'six shown, two more behind the button')
+    await b.run(`document.querySelector('.mcpi-reg-more').click()`)
+    assert.equal(await b.run(`document.querySelectorAll('.mcpi-reg-list .mcpi-card-wrap[hidden]').length + '|' + document.querySelector('.mcpi-reg-more').hidden`), '0|true')
+    await search('fail')
+    await b.until(`document.querySelector('.mcpi-reg-list').textContent.includes('The request failed') && !document.querySelector('.mcpi-reg')`, 4000)
+  })
+
+  await t.test('coming back from authorization with no sign-in on record says so', async () => {
+    await b.run(`localStorage.removeItem('mcpi:oauth'); true`)
+    await open('?code=stray&state=x')
+    await b.until(`document.querySelector('.mcpi-notice')`, 4000)
+    assert.match(await b.run(`document.querySelector('.mcpi-notice').textContent`), /Returned from OAuth/)
+    assert.equal(await b.run('location.search'), '', 'the code is taken out of the address')
+  })
+
+  await t.test('copy buttons put the text on the clipboard and say so', async () => {
+    await b.send('Browser.grantPermissions', { origin, permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] })
+    /* The clipboard answers only a page that has focus, which a headless page does not have unless told. */
+    await b.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+    await open('?s=local')
+    await b.until(`$t.status() === 'Connected'`)
+    /* The debugger copies what it shows, message content left out unless asked. */
+    await b.run(`$t.tab('Debug').click()`)
+    await b.run(`document.querySelector('.mcpi-dbg-copy').click()`)
+    await b.until(`document.querySelector('.mcpi-dbg-copy').classList.contains('is-done')`, 3000)
+    const plain = await b.run(`navigator.clipboard.readText()`)
+    assert.ok(plain.includes('tools/list'), plain.slice(0, 200))
+    await b.run(`(() => { const c = document.querySelector('.mcpi-dbg-check input'); c.click() })()`)
+    assert.equal(await b.run(`!document.querySelector('.mcpi-dbg-note').hidden`), true, 'ticking it says what message content can hold')
+    await b.until(`!document.querySelector('.mcpi-dbg-copy').classList.contains('is-done')`, 3000)
+    await b.run(`document.querySelector('.mcpi-dbg-copy').click()`)
+    await b.until(`document.querySelector('.mcpi-dbg-copy').classList.contains('is-done')`, 3000)
+    const full = await b.run(`navigator.clipboard.readText()`)
+    assert.ok(full.length > plain.length && full.includes('"tools"'), 'with message content: the answers too')
+    /* The popup's copy button and link buttons. */
+    await b.run(`document.querySelector('.mcpi-server[data-key=local]').closest('.mcpi-card-wrap').querySelector('.mcpi-card-ai').click()`)
+    await b.run(`document.querySelector('.mcpi-addto-tile[data-client=claude-code]').click()`)
+    await b.run(`document.querySelector('.mcpi-addto-detail .mcpi-addto-copy').click()`)
+    await b.until(`document.querySelector('.mcpi-addto-detail .mcpi-addto-copy').classList.contains('is-done')`, 3000)
+    assert.match(await b.run(`navigator.clipboard.readText()`), /^claude mcp add --transport http /)
+    await b.run(`document.querySelector('.mcpi-addto-share.is-plug').click()`)
+    await b.until(`document.querySelector('.mcpi-addto-share.is-plug').classList.contains('is-done')`, 3000)
+    assert.equal(await b.run(`navigator.clipboard.readText()`), origin + '/?s=local&to=claude-code')
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+  })
+
   await t.test('mount returns destroy, which closes its connections and empties the element', async () => {
     await b.go(origin + '/lib.html')
     await b.run(HELPERS)
@@ -588,6 +687,16 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
   })
 
   await t.test('the AI component on a page of its own: one click where the client allows, steps where it does not', async () => {
+    /* A button given by registry name alone looks the server up on the first press, and says when it is not there. */
+    await b.go(origin + '/add-to-ai.html')
+    await b.run(`(() => { const x = MCPAddToAI.addToAiButton({ id: 'io.test/nothing' }, { registryApi: '/registry/v0/servers' }); x.id = 'byid-missing'; document.body.append(x); const y = MCPAddToAI.addToAiButton({ id: 'io.test/docs' }, { registryApi: '/registry/v0/servers', mobile: false }); y.id = 'byid-found'; document.body.append(y) })()`)
+    await b.run(`document.querySelector('#byid-missing').click()`)
+    await b.until(`document.querySelector('#byid-missing').textContent === 'Not in the MCP Registry'`, 4000)
+    await b.run(`document.querySelector('#byid-found').click()`)
+    await b.until(`document.querySelector('dialog.mcpi-addto h2')?.textContent === 'Add Docs from the registry to an AI client'`, 4000)
+    await b.run(`document.querySelector('dialog.mcpi-addto').close()`)
+    await b.until(`!document.querySelector('dialog.mcpi-addto')`, 2000)
+
     await b.go(origin + '/add-to-ai.html')
     assert.equal(await b.run(`document.querySelector('#open button').textContent`), 'Add to an AI client')
     assert.equal(await b.run(`document.querySelector('#ko button').textContent`), 'AI 클라이언트에 추가', 'lang="ko"')

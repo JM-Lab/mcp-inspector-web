@@ -258,6 +258,8 @@ export function debugView(trace, opts = {}) {
       const sig = JSON.stringify([level, status, right, title, hit, e.reach, e.error, (m.carried.get(e.seq) || []).map((x) => x.seq), stepHint(e, m)])
       const had = drawn.get(e.seq)
       if (had && had.sig === sig) return had
+      /* A row drawn again (its answer came) stays as the person left it: the toggle event of a row just opened may not have fired yet. */
+      if (had && had.el.open) state.open.add(e.seq)
       const d = el('details', { class: 'mcpi-dbg-row is-' + level + (hit ? ' is-hit' : ''), 'data-seq': String(e.seq), 'data-level': level, open: state.open.has(e.seq) },
         el('summary', null, mark(level), el('code', { text: title }), el('span', { class: 'is-' + (level === 'fail' ? 'fail' : 'info'), text: status }), el('span', { text: right })))
       /* Details are drawn when opened: a long session has many rows. */

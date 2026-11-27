@@ -9,10 +9,13 @@
  *   await b.until(js, ms)             waits until an expression is truthy, and returns it
  *   await b.shot(clip)                a PNG (Buffer) of the page, or of clip { x, y, width, height }
  *   b.errors                          uncaught errors and unhandled rejections in the page
+ *
+ * With MCPI_COVERAGE=<dir>, it records which code of the page's scripts ran (V8 block coverage), before each navigation
+ * and on close, into <dir>/chrome-<pid>.json, for scripts/coverage.js.
  *   await b.close()
  */
 import { spawn, execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -90,6 +93,26 @@ export async function openChrome({ width = 1200, height = 900, scale = 1 } = {})
   const ua = (await send('Browser.getVersion')).userAgent.replace('HeadlessChrome', 'Chrome')
   await send('Network.setUserAgentOverride', { userAgent: ua, acceptLanguage: 'en-US,en' })
 
+  /* Coverage of the page's own scripts, taken before the page goes away. Sources are kept by address, once. */
+  const coverDir = process.env.MCPI_COVERAGE
+  const covered = []
+  const sources = new Map()
+  if (coverDir) {
+    await send('Debugger.enable')
+    await send('Profiler.enable')
+    await send('Profiler.startPreciseCoverage', { callCount: true, detailed: true })
+  }
+  async function collect() {
+    if (!coverDir) return
+    const { result } = await send('Profiler.takePreciseCoverage').catch(() => ({ result: [] }))
+    for (const s of result) {
+      if (!/^https?:\/\/127\.0\.0\.1:\d+\/[^?]*\.js/.test(s.url)) continue
+      const key = s.url.replace(/\?.*$/, '')
+      if (!sources.has(key)) sources.set(key, (await send('Debugger.getScriptSource', { scriptId: s.scriptId }).catch(() => ({}))).scriptSource || '')
+      covered.push({ url: key, functions: s.functions })
+    }
+  }
+
   const run = async (expression) => {
     const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })
     if (r.exceptionDetails) throw new Error((r.exceptionDetails.exception && r.exceptionDetails.exception.description) || r.exceptionDetails.text)
@@ -99,7 +122,7 @@ export async function openChrome({ width = 1200, height = 900, scale = 1 } = {})
     errors,
     send,
     run,
-    async go(url) { const loaded = event('Page.loadEventFired'); await send('Page.navigate', { url }); await loaded },
+    async go(url) { await collect(); const loaded = event('Page.loadEventFired'); await send('Page.navigate', { url }); await loaded },
     async until(expression, ms = 10000) {
       const end = Date.now() + ms
       for (;;) {
@@ -114,6 +137,11 @@ export async function openChrome({ width = 1200, height = 900, scale = 1 } = {})
       return Buffer.from(r.data, 'base64')
     },
     async close() {
+      await collect()
+      if (coverDir) {
+        mkdirSync(coverDir, { recursive: true })
+        writeFileSync(join(coverDir, `chrome-${process.pid}-${Date.now()}.json`), JSON.stringify({ sources: Object.fromEntries(sources), covered }))
+      }
       ws.close()
       const exited = new Promise((r) => chrome.once('exit', r))
       chrome.kill()
