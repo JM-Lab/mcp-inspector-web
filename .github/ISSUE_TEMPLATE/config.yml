@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and how-tos
+    url: https://github.com/JM-Lab/mcp-inspector-web/discussions/categories/q-a
+    about: Ask in Discussions, Q&A.
+  - name: Feature ideas
+    url: https://github.com/JM-Lab/mcp-inspector-web/discussions/categories/ideas
+    about: Suggest it in Discussions, Ideas.
