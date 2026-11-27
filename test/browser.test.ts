@@ -102,6 +102,8 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     await b.until(`$t.status() === 'Connected'`)
     assert.deepEqual(await b.run(`[$t.count('Tools'), $t.count('Prompts'), $t.count('Resources')]`), [5, 1, 1])
     assert.match(await b.run(`document.querySelector('.mcpi-info').textContent`), /mcpi-test 0\.0\.1/)
+    /* The line is as wide as the panel (a class of the same name on something else once squeezed it into a small box). */
+    assert.ok(await b.run(`document.querySelector('.mcpi-info').getBoundingClientRect().width > 300`), 'the server line has its full width')
     assert.equal(await b.run(`document.querySelector('.mcpi-instr pre').textContent`), 'test instructions')
     assert.match(await b.run('location.search'), /\?s=local/)
   })
@@ -203,6 +205,40 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     await open()
     const kept = await b.run(`[...document.querySelectorAll('.mcpi-server')].map((c) => c.dataset.key)`)
     assert.ok(kept.includes(mcp.base + '/token'), 'the added server is still listed after a reload')
+  })
+
+  await t.test('the header token is hidden on screen, kept for this tab only, and the i says so', async () => {
+    const card = `[...document.querySelectorAll('.mcpi-server')].find((c) => c.dataset.key === ${JSON.stringify(mcp.base + '/token')})`
+    /* The same tab after a reload: the token is still there, so it connects. */
+    await b.run(`${card}.click()`)
+    await b.until(`$t.status() === 'Connected' && !document.querySelector('.mcpi-auth').hidden`)
+    assert.equal(await b.run(`JSON.stringify(Object.entries(localStorage)).includes('secret')`), false, 'the value is not in localStorage')
+    assert.match(await b.run(`sessionStorage.getItem('mcpi:header-tokens')`), /"x-test-key":"secret"/)
+    /* Dots until the eye is pressed, and again when pressed once more. */
+    const value = `document.querySelectorAll('.mcpi-token input')[1]`
+    assert.deepEqual(await b.run(`[${value}.type, ${value}.value]`), ['password', 'secret'])
+    await b.run(`document.querySelector('.mcpi-token .mcpi-eye').click()`)
+    assert.deepEqual(await b.run(`[${value}.type, document.querySelector('.mcpi-token .mcpi-eye').title]`), ['text', 'Hide the token'])
+    await b.run(`document.querySelector('.mcpi-token .mcpi-eye').click()`)
+    assert.equal(await b.run(`${value}.type`), 'password')
+    /* The i: its words as a tooltip, and on the page when pressed. */
+    const info = `document.querySelector('.mcpi-auth .mcpi-i')`
+    assert.match(await b.run(`${info}.title`), /kept only until you close this tab/)
+    assert.equal(await b.run(`document.querySelector('.mcpi-auth .mcpi-info-note').hidden`), true)
+    await b.run(`${info}.click()`)
+    assert.equal(await b.run(`getComputedStyle(document.querySelector('.mcpi-auth .mcpi-info-note')).display !== 'none' && ${info}.getAttribute('aria-expanded')`), 'true')
+    /* The add form has the same field and the same i. */
+    assert.equal(await b.run(`document.querySelector('.mcpi-add-header input[aria-label="Header value"]').type + '|' + !!document.querySelector('.mcpi-add-header .mcpi-i')`), 'password|true')
+    /* A new tab (nothing in sessionStorage): the server and its header name are there, the token is not, and it asks for it. */
+    const tokens = await b.run(`sessionStorage.getItem('mcpi:header-tokens')`)
+    await b.run(`sessionStorage.removeItem('mcpi:header-tokens')`)
+    await open()
+    await b.run(`${card}.click()`)
+    await b.until(`$t.status() === 'Failed' && !document.querySelector('.mcpi-auth').hidden`)
+    assert.deepEqual(await b.run(`[...document.querySelectorAll('.mcpi-token input')].map((i) => i.value)`), ['x-test-key', ''])
+    /* Put back, as the tab had it, for the tests that follow. */
+    await b.run(`sessionStorage.setItem('mcpi:header-tokens', ${JSON.stringify(tokens)})`)
+    await open()
   })
 
   /* No token, code or verifier anywhere on the page or in localStorage (tokens live in sessionStorage, by design). */
@@ -447,6 +483,9 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.equal(await b.run(tool(mcp.base + '/from-registry', '.mcpi-card-share') + '.dataset.copy'), origin + '/?r=io.test/local', 'a registry server is linked by its name')
 
     /* A server you added yourself, with a header token: the link names the header, and nothing anywhere holds the token. */
+    /* The token lives in this tab only, and an earlier step emptied the tab's storage: put in again, as its person would. */
+    await b.run(`sessionStorage.setItem('mcpi:header-tokens', ${JSON.stringify(JSON.stringify({ [mcp.base + '/token']: { 'x-test-key': 'secret' } }))})`)
+    await open()
     assert.equal(await b.run(tool(mcp.base + '/token', '.mcpi-card-share') + '.dataset.copy'), origin + '/?u=' + mcp.base + '/token&h=x-test-key')
     await b.run(tool(mcp.base + '/token', '.mcpi-card-ai') + '.click()')
     assert.equal(await b.run(`document.querySelector('dialog.mcpi-addto').open`), true)

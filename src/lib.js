@@ -6,7 +6,7 @@
 /** Default key prefix for everything the inspector keeps in the browser. */
 export const STORE_PREFIX = 'mcpi'
 /** Storage keys for a prefix. v1 was a plain array of added servers. */
-export const storeKeys = (prefix = STORE_PREFIX) => ({ v2: prefix + ':v2', v1: prefix + ':v1' })
+export const storeKeys = (prefix = STORE_PREFIX) => ({ v2: prefix + ':v2', v1: prefix + ':v1', tokens: prefix + ':header-tokens' })
 /** How many added servers and recently viewed servers each are kept in the browser. */
 export const CAP = 10
 /** How many registry cards are shown before "Show more". */
@@ -117,18 +117,47 @@ export function filled(obj) {
 
 export const without = (list, url) => (list || []).filter((x) => x.url !== url)
 
-/** Reads what was saved. v1 (an array) becomes the added servers. Broken values read as empty lists. */
-export function loadStore(storage, prefix = STORE_PREFIX) {
+/*
+ * A header token is a secret, so its value is kept apart from the list of servers: in `session` (sessionStorage), which goes
+ * when the tab closes, like the OAuth tokens. The list in `storage` (localStorage) keeps only the header's name (authHeader),
+ * so the field is there, empty, the next time. With no `session` given, a token is not kept at all.
+ */
+const headerName = (s) => Object.keys(s.headers || {})[0] || s.authHeader || ''
+const kept = (s) => Object.assign(slim(s), { authHeader: headerName(s), headers: null })
+
+/**
+ * Reads what was saved. v1 (an array) becomes the added servers. Broken values read as empty lists.
+ * A token found in `storage` (saved there by an earlier version) is used this once and reported as `moved`, for the page to save again and so take it out.
+ */
+export function loadStore(storage, prefix = STORE_PREFIX, session) {
   const keys = storeKeys(prefix)
-  const read = (k) => { try { return JSON.parse(storage.getItem(k)) } catch (e) { return null } }
-  const ok = (list) => (Array.isArray(list) ? list : []).filter((s) => s && cleanUrl(s.url)).map(slim).slice(0, CAP)
-  const v2 = read(keys.v2)
-  if (v2 && typeof v2 === 'object' && !Array.isArray(v2)) return { mine: ok(v2.mine), recent: ok(v2.recent) }
-  return { mine: ok(read(keys.v1)), recent: [] }
+  const read = (from, k) => { try { return JSON.parse(from.getItem(k)) } catch (e) { return null } }
+  const tokens = (session && read(session, keys.tokens)) || {}
+  let moved = false
+  const ok = (list) => (Array.isArray(list) ? list : []).filter((s) => s && cleanUrl(s.url)).map((s) => {
+    const out = slim(s)
+    if (out.headers) moved = true
+    const mine = tokens[out.url]
+    if (mine && typeof mine === 'object' && Object.keys(mine).length) out.headers = mine
+    if (out.headers && !out.authHeader) out.authHeader = headerName(out)
+    return out
+  }).slice(0, CAP)
+  const v2 = read(storage, keys.v2)
+  const lists = v2 && typeof v2 === 'object' && !Array.isArray(v2) ? { mine: ok(v2.mine), recent: ok(v2.recent) } : { mine: ok(read(storage, keys.v1)), recent: [] }
+  return moved ? Object.assign(lists, { moved }) : lists
 }
 
-export function saveStore(storage, state, prefix = STORE_PREFIX) {
-  try { storage.setItem(storeKeys(prefix).v2, JSON.stringify({ mine: (state.mine || []).map(slim).slice(0, CAP), recent: (state.recent || []).map(slim).slice(0, CAP) })) } catch (e) { /* storage blocked */ }
+export function saveStore(storage, state, prefix = STORE_PREFIX, session) {
+  const keys = storeKeys(prefix)
+  const lists = { mine: (state.mine || []).slice(0, CAP), recent: (state.recent || []).slice(0, CAP) }
+  try { storage.setItem(keys.v2, JSON.stringify({ mine: lists.mine.map(kept), recent: lists.recent.map(kept) })) } catch (e) { /* storage blocked */ }
+  if (!session) return
+  const tokens = {}
+  for (const s of lists.mine.concat(lists.recent)) if (s.headers && Object.keys(s.headers).length) tokens[s.url] = s.headers
+  try {
+    if (Object.keys(tokens).length) session.setItem(keys.tokens, JSON.stringify(tokens))
+    else if (session.removeItem) session.removeItem(keys.tokens)
+  } catch (e) { /* storage blocked */ }
 }
 
 export function countsText(n) {

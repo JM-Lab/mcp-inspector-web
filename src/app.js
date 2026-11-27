@@ -19,7 +19,8 @@
  */
 import { Conn } from './conn.js'
 import { STRINGS } from './strings.js'
-import { rowEnd, h, linkify, labeled } from './dom.js'
+import { rowEnd, h, linkify, labeled, secretField, infoNote } from './dom.js'
+import { lineIcon } from './icons.js'
 import { oauthStore } from './oauth.js'
 import { form } from './form.js'
 import { panes } from './panes.js'
@@ -55,11 +56,14 @@ export function mount(root, options) {
   const setQuery = (q) => { try { history.replaceState(null, '', location.pathname + mergeQuery(location.search, q)) } catch (e) { /* ignore */ } }
 
   /* Servers: pinned (options.servers) + added by address (mine) + recently viewed (recent). The last two keep CAP each in this browser. */
-  const stored = loadStore(localStorage, P)
+  /* Header token values live in sessionStorage and go when the tab closes; the list of servers in localStorage has none. */
+  const stored = loadStore(localStorage, P, sessionStorage)
   const fromStore = (kind) => (x) => Object.assign({}, x, { key: x.url, custom: true, kind })
   let servers = cfg.servers.map((s) => Object.assign({ custom: false }, s)).concat(stored.mine.map(fromStore('mine')), stored.recent.map(fromStore('recent')))
   const ofKind = (kind) => servers.filter((s) => s.kind === kind)
-  const save = () => saveStore(localStorage, { mine: ofKind('mine'), recent: ofKind('recent') }, P)
+  const save = () => saveStore(localStorage, { mine: ofKind('mine'), recent: ofKind('recent') }, P, sessionStorage)
+  /* A token an earlier version left in localStorage: saving again takes it out of there. */
+  if (stored.moved) save()
   const hooks = {
     onLog: (c) => logChanged(c), onListsChanged: (c) => listsChanged(c), onElicit: (c, params) => elicit(c, params),
     authProvider: (server) => auth.provider(server), hasTokens: (server) => auth.hasTokens(server), explain, clientInfo: cfg.clientInfo,
@@ -429,7 +433,9 @@ export function mount(root, options) {
   const hValue = h('input', { type: 'text', placeholder: 'Bearer <token>', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Header value' })
   const authPick = h('select', { class: 'mcpi-add-auth', 'aria-label': 'Authentication' },
     h('option', { value: 'none', text: ui.authNone }), h('option', { value: 'header', text: ui.token }), h('option', { value: 'oauth', text: 'OAuth (PKCE)' }))
-  const headerRow = h('div', { class: 'mcpi-add-header', hidden: true }, labeled(ui.hName, hName), labeled(ui.hValue, hValue))
+  const secretWords = { show: ui.tokenShow, hide: ui.tokenHide }
+  const [addInfo, addInfoNote] = infoNote(ui.tokenNote, lineIcon)
+  const headerRow = h('div', { class: 'mcpi-add-header', hidden: true }, labeled(ui.hName, hName), labeled([ui.hValue, addInfo], secretField(hValue, lineIcon, secretWords)), addInfoNote)
   const addHint = h('p', { class: 'mcpi-hint is-shown', hidden: true, text: ui.addHint })
   authPick.addEventListener('change', () => { headerRow.hidden = authPick.value !== 'header'; addHint.hidden = authPick.value !== 'oauth' })
   const addForm = h('form', { class: 'mcpi-add' },
@@ -481,7 +487,8 @@ export function mount(root, options) {
   const authNote = h('p', { class: 'mcpi-auth-note' })
   const signIn = h('button', { type: 'button', class: 'mcpi-btn', text: ui.oauthBtn })
   const tSave = h('button', { type: 'submit', class: 'mcpi-btn', text: 'Save & reconnect' })
-  const tForm = h('form', { class: 'mcpi-token' }, labeled(ui.hName, tName), labeled(ui.hValue, tValue), tSave)
+  const tForm = h('form', { class: 'mcpi-token' }, labeled(ui.hName, tName), labeled(ui.hValue, secretField(tValue, lineIcon, secretWords)), tSave)
+  const [tokenInfo, tokenInfoNote] = infoNote(ui.tokenNote, lineIcon)
   tForm.addEventListener('submit', (e) => {
     e.preventDefault()
     const s = current
@@ -492,7 +499,7 @@ export function mount(root, options) {
     reopen(s)
   })
   signIn.addEventListener('click', () => reopen(current, { oauth: true }))
-  el.auth.append(authNote, h('p', { class: 'mcpi-label', text: 'OAuth' }), signIn, h('p', { class: 'mcpi-label', text: ui.token }), tForm)
+  el.auth.append(authNote, h('p', { class: 'mcpi-label', text: 'OAuth' }), signIn, h('p', { class: 'mcpi-label mcpi-label-info' }, h('span', { class: 'mcpi-label-text', text: ui.token }), tokenInfo), tokenInfoNote, tForm)
 
   const cardMeta = (c) => ({ id: c.id, name: c.name, desc: c.desc, icon: c.icon, web: c.web, hint: c.hint, hintValue: c.hintValue })
   const registry = cfg.registry ? registryPanel({ cfg, ui, linkOf: (c) => shareLink({ custom: true, id: c.id, url: c.url }), onAdd: (c) => addTo(Object.assign({}, cardMeta(c), { url: c.url })), onPick: (c, wrap) => open(add(c.url, 'recent', cardMeta(c)), wrap), onRender: () => placeMain() }) : null

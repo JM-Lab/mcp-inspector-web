@@ -12,6 +12,10 @@ const ICON_PATHS = {
   plug: ['M9 2v5', 'M15 2v5', 'M6 7h12v4a6 6 0 0 1-12 0V7z', 'M12 17v5', 'M12.8 8.6l-2.2 2.9h2.8l-2.2 2.9'],
   copy: ['M9 9h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1z', 'M16 5V4a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h1'],
   check: ['M5 12.5l4.5 4.5L19 7.5'],
+  /* A secret field: show it, hide it again, and the i that says how long it is kept. */
+  eye: ['M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z', 'M12 9.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5'],
+  eyeOff: ['M4 4l16 16', 'M9.9 5.8A9 9 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-2.6 3.4', 'M6.3 7.6A16 16 0 0 0 2.5 12S6 18.5 12 18.5a9 9 0 0 0 3.6-.8', 'M10.2 10.3a2.5 2.5 0 0 0 3.5 3.5'],
+  info: ['M12 3.5a8.5 8.5 0 1 0 0 17a8.5 8.5 0 1 0 0-17', 'M12 11v5.5', 'M12 7.6v.4'],
   /* The debugger's marks: a cross for a failure, a dot for what was expected along the way, a dashed ring for a step not reached. */
   cross: ['M7 7l10 10', 'M17 7L7 17'],
   dot: ['M12 10a2 2 0 1 0 0 4a2 2 0 1 0 0-4'],

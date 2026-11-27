@@ -53,5 +53,37 @@ export function rowEnd(item, skip) {
   return last
 }
 
+/*
+ * A field for a secret (a header token): dots until the eye is pressed, and again when the field is left.
+ * Returns the wrapper to put on the page; the input itself is still the one read and written.
+ */
+export function secretField(input, icon, { show, hide }) {
+  input.type = 'password'
+  /* Not a sign-in form: password managers should leave it alone. */
+  for (const [k, v] of [['autocomplete', 'off'], ['data-1p-ignore', ''], ['data-lpignore', 'true'], ['data-bwignore', '']]) input.setAttribute(k, v)
+  const eye = h('button', { type: 'button', class: 'mcpi-eye', title: show, 'aria-label': show, 'aria-pressed': 'false' }, icon('eye', 16))
+  const set = (on) => {
+    input.type = on ? 'text' : 'password'
+    eye.replaceChildren(icon(on ? 'eyeOff' : 'eye', 16))
+    eye.title = on ? hide : show
+    eye.setAttribute('aria-label', eye.title)
+    eye.setAttribute('aria-pressed', String(on))
+  }
+  eye.addEventListener('click', () => set(input.type === 'password'))
+  input.addEventListener('blur', (e) => { if (e.relatedTarget !== eye) set(false) })
+  return h('span', { class: 'mcpi-secret' }, input, eye)
+}
+
+/*
+ * A small i after a label: what it says shows as a tooltip, and pressing it puts the same words on the page (a tooltip
+ * does not show on a phone). Returns [button, note]; the note goes wherever the words should appear.
+ */
+export function infoNote(text, icon) {
+  const note = h('p', { class: 'mcpi-hint is-shown mcpi-info-note', hidden: true, text })
+  const b = h('button', { type: 'button', class: 'mcpi-i', title: text, 'aria-label': text, 'aria-expanded': 'false' }, icon('info', 14))
+  b.addEventListener('click', () => { note.hidden = !note.hidden; b.setAttribute('aria-expanded', String(!note.hidden)) })
+  return [b, note]
+}
+
 /* Labels sit above inputs. A placeholder alone disappears as soon as you type. */
-export const labeled = (label, input) => h('label', { class: 'mcpi-lab' }, h('span', { text: label }), input)
+export const labeled = (label, input) => h('label', { class: 'mcpi-lab' }, typeof label === 'string' ? h('span', { text: label }) : h('span', null, label), input)

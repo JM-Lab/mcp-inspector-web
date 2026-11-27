@@ -8,7 +8,7 @@ export const CAP: number
 export const REG_FIRST: number
 export const REGISTRY: string
 export const FILTERS: string[]
-export function storeKeys(prefix?: string): { v2: string; v1: string }
+export function storeKeys(prefix?: string): { v2: string; v1: string; tokens: string }
 export function hostOf(url: string): string
 /** An address on this computer or a private network (localhost, 10.x, 192.168.x, .local, …). */
 export function isPrivateAddress(url: string): boolean
@@ -21,8 +21,10 @@ export function iconCandidates(s: { url: string; icon?: string; web?: string }):
 export function pushFront<T extends { url: string }>(list: T[], item: T, cap?: number): T[]
 export function filled<T extends object>(obj: T | null | undefined): Partial<T>
 export function without<T extends { url: string }>(list: T[] | null | undefined, url: string): T[]
-export function loadStore(storage: Storage2, prefix?: string): { mine: object[]; recent: object[] }
-export function saveStore(storage: Storage2, state: { mine: object[]; recent: object[] }, prefix?: string): void
+/** `session`: where header token values are kept (sessionStorage). `moved`: a token was found in `storage`, from an earlier version; save again to take it out. */
+export function loadStore(storage: Storage2, prefix?: string, session?: Storage2): { mine: object[]; recent: object[]; moved?: boolean }
+/** Header token values go to `session` only (not kept at all without it); `storage` gets the header's name. */
+export function saveStore(storage: Storage2, state: { mine: object[]; recent: object[] }, prefix?: string, session?: Storage2): void
 export function countsText(n: Record<string, number> | null | undefined): string
 export function featuredFor(filter: string, featured: { servers?: Card[] } | null | undefined): Card[]
 export function isAuthError(e: unknown): boolean

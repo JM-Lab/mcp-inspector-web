@@ -97,12 +97,56 @@ test('storage: added and recent servers are kept apart and read back', () => {
   const store = memory()
   const mine = [{ url: 'https://a.example/mcp', name: 'A', headers: { Authorization: 'Bearer x' }, key: 'k', custom: true, kind: 'mine' }]
   const recent = [{ url: 'https://b.example/mcp', name: 'B', desc: 'd', icon: 'https://b.example/i.png' }]
-  lib.saveStore(store, { mine, recent })
-  const back = lib.loadStore(store)
-  assert.deepEqual(back.mine, [{ url: 'https://a.example/mcp', id: '', authHeader: '', name: 'A', desc: '', icon: '', web: '', hint: '', hintValue: '', headers: { Authorization: 'Bearer x' } }])
+  const session = memory()
+  lib.saveStore(store, { mine, recent }, undefined, session)
+  const back = lib.loadStore(store, undefined, session)
+  assert.deepEqual(back.mine, [{ url: 'https://a.example/mcp', id: '', authHeader: 'Authorization', name: 'A', desc: '', icon: '', web: '', hint: '', hintValue: '', headers: { Authorization: 'Bearer x' } }])
   assert.equal(back.recent[0].name, 'B')
   assert.equal(back.recent[0].icon, 'https://b.example/i.png')
   assert.ok(!('key' in back.mine[0]), 'UI-only fields are not saved')
+})
+
+test('storage: a header token value is kept for the tab only, and the list keeps just the header name', () => {
+  const local = memory()
+  const session = memory()
+  const mine = [{ url: 'https://a.example/mcp', name: 'A', headers: { 'X-Api-Key': 'key-SECRET-1' } }]
+  const recent = [{ url: 'https://b.example/mcp', name: 'B', headers: { Authorization: 'Bearer tok-SECRET-2' } }, { url: 'https://c.example/mcp', name: 'C' }]
+  lib.saveStore(local, { mine, recent }, 'p', session)
+  const inLocal = local.dump()['p:v2']
+  assert.ok(!inLocal.includes('key-SECRET-1') && !inLocal.includes('tok-SECRET-2'), 'no token value in localStorage')
+  assert.match(inLocal, /"authHeader":"X-Api-Key"/, 'the header name is remembered')
+  assert.deepEqual(Object.keys(session.dump()), ['p:header-tokens'])
+  /* The same tab: the token is there. */
+  const same = lib.loadStore(local, 'p', session)
+  assert.deepEqual(same.mine[0].headers, { 'X-Api-Key': 'key-SECRET-1' })
+  assert.deepEqual(same.recent.map((s) => s.headers), [{ Authorization: 'Bearer tok-SECRET-2' }, null])
+  assert.equal(same.moved, undefined)
+  /* A new tab (an empty sessionStorage): the server and the header name are there, the value is not. */
+  const fresh = lib.loadStore(local, 'p', memory())
+  assert.deepEqual([fresh.mine[0].headers, fresh.mine[0].authHeader], [null, 'X-Api-Key'])
+  assert.deepEqual([fresh.recent[0].headers, fresh.recent[0].authHeader], [null, 'Authorization'])
+  /* With no session storage at all, a token is not kept anywhere. */
+  const only = memory()
+  lib.saveStore(only, { mine, recent: [] }, 'p')
+  assert.ok(!JSON.stringify(only.dump()).includes('key-SECRET-1'))
+  /* Taking the token off a server takes it out of the session too. */
+  const removable = Object.assign(memory(), { removeItem(k: string) { delete (this as unknown as { gone: string }).gone; (this as unknown as { removed: string }).removed = k } })
+  lib.saveStore(local, { mine: [{ url: 'https://a.example/mcp', name: 'A' }], recent: [] }, 'p', removable)
+  assert.equal((removable as unknown as { removed: string }).removed, 'p:header-tokens')
+})
+
+test('storage: a token an earlier version left in localStorage is used once, reported, and gone after the next save', () => {
+  const old = { mine: [{ url: 'https://a.example/mcp', name: 'A', headers: { Authorization: 'Bearer old-SECRET-3' } }], recent: [] }
+  const local = memory({ 'p:v2': JSON.stringify(old) })
+  const session = memory()
+  const back = lib.loadStore(local, 'p', session)
+  assert.equal(back.moved, true)
+  assert.deepEqual(back.mine[0].headers, { Authorization: 'Bearer old-SECRET-3' }, 'still works in this tab')
+  assert.equal(back.mine[0].authHeader, 'Authorization')
+  lib.saveStore(local, back, 'p', session)
+  assert.ok(!JSON.stringify(local.dump()).includes('old-SECRET-3'), 'taken out of localStorage')
+  assert.match(JSON.stringify(session.dump()), /old-SECRET-3/)
+  assert.equal(lib.loadStore(local, 'p', session).moved, undefined)
 })
 
 test('storage: keeps ten of each', () => {

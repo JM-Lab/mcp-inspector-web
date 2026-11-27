@@ -13,7 +13,7 @@
 .mcpi code,.mcpi pre,.mcpi .mcpi-pick,.mcpi-select,.mcpi-field label,.mcpi-field input,.mcpi-field select,.mcpi-field textarea,.mcpi-add input{font-family:var(--mcpi-mono)}
 .mcpi code{background:none;padding:0}
 .mcpi pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
-.mcpi input[type=text],.mcpi input[type=url],.mcpi input[type=search],.mcpi select,.mcpi textarea{display:block;width:100%;box-sizing:border-box;min-height:42px;padding:.35rem .6rem;border:1px solid var(--mcpi-rule);border-radius:6px;background:var(--mcpi-card);color:var(--mcpi-ink);font-size:16px}
+.mcpi input[type=text],.mcpi input[type=password],.mcpi input[type=url],.mcpi input[type=search],.mcpi select,.mcpi textarea{display:block;width:100%;box-sizing:border-box;min-height:42px;padding:.35rem .6rem;border:1px solid var(--mcpi-rule);border-radius:6px;background:var(--mcpi-card);color:var(--mcpi-ink);font-size:16px}
 .mcpi input:focus,.mcpi select:focus,.mcpi textarea:focus{outline:2px solid var(--mcpi-accent);outline-offset:-1px}
 .mcpi-label{margin:0 0 .4rem;font-weight:800;font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:var(--mcpi-mute)}
 .mcpi-label span{font-weight:600;text-transform:none;letter-spacing:0}
@@ -226,3 +226,14 @@
 .mcpi-icon-btn.is-done{color:var(--mcpi-accent3)!important;border-color:var(--mcpi-accent3)}
 .mcpi-share .mcpi-share-kind{align-items:center;gap:.35rem;text-transform:none;letter-spacing:0;font-size:.78rem;color:var(--mcpi-ink)}
 .mcpi-share-kind svg{flex:none;color:var(--mcpi-accent)}
+/* A secret field: the eye sits inside its right end. The i after a label says how long the token is kept. */
+.mcpi-secret{position:relative;display:block}
+.mcpi-secret input{padding-right:2.6rem;font-family:var(--mcpi-mono)}
+.mcpi-eye{position:absolute;right:.2rem;top:50%;transform:translateY(-50%);width:36px;height:36px;display:grid;place-items:center;padding:0;border:0;border-radius:999px;background:none;color:var(--mcpi-mute)}
+.mcpi-eye:hover,.mcpi-eye[aria-pressed=true]{color:var(--mcpi-ink);background:var(--mcpi-tint)}
+.mcpi-i{width:24px;height:24px;display:inline-grid;place-items:center;vertical-align:middle;margin:-.3rem 0 -.3rem .15rem;padding:0;border:0;border-radius:999px;background:none;color:var(--mcpi-mute)}
+.mcpi-i:hover,.mcpi-i[aria-expanded=true]{color:var(--mcpi-accent);background:var(--mcpi-tint)}
+.mcpi-label-info .mcpi-label-text{font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+.mcpi-info-note{margin:0 0 .3rem}
+.mcpi-info-note[hidden]{display:none}
+.mcpi-add-header .mcpi-info-note{grid-column:1/-1}
