@@ -2,7 +2,7 @@
 
 Versions follow [semver](https://semver.org). While the version starts with 0, a minor release may change options or exports.
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-11-27)
 
 The first public release.
 

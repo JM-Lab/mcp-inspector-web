@@ -10,6 +10,7 @@ No install, no backend, no proxy: the page talks to the server directly, on desk
 
 <a href="https://aljal.kr/miw"><img src="docs/button-live-demo.svg" alt="Open the live demo at aljal.kr/miw" width="300" height="52"></a>
 
+[![npm](https://img.shields.io/npm/v/mcp-inspector-web)](https://www.npmjs.com/package/mcp-inspector-web)
 [![CI](https://github.com/JM-Lab/mcp-inspector-web/actions/workflows/ci.yml/badge.svg)](https://github.com/JM-Lab/mcp-inspector-web/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
