@@ -27,6 +27,8 @@ export function loadStore(storage: Storage2, prefix?: string, session?: Storage2
 export function saveStore(storage: Storage2, state: { mine: object[]; recent: object[] }, prefix?: string, session?: Storage2): void
 export function countsText(n: Record<string, number> | null | undefined): string
 export function featuredFor(filter: string, featured: { servers?: Card[] } | null | undefined): Card[]
+/** What to say about a negotiated protocol revision: 'current' (2026-07-28+), 'info' (2025-11-25), 'warn' (older, with what this inspector uses that it lacks). */
+export function revisionNote(version: string | null | undefined): { level: 'current' | 'info' | 'warn' | null; missing: ('elicitation' | 'titles' | 'annotations' | 'completions')[] }
 export function isAuthError(e: unknown): boolean
 export function isNetError(e: unknown): boolean
 export function kindOf(prop: object): string

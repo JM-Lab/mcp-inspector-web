@@ -4,7 +4,7 @@
  */
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { createTrace, judge, rowsOf, toLog, masked, maskedUrl, kindOf, tripStore, HIDE } from '../src/trace.js'
+import { createTrace, judge, rowsOf, protocolOf, revisionLevel, toLog, masked, maskedUrl, kindOf, tripStore, HIDE } from '../src/trace.js'
 import { failureText, STRINGS } from '../src/debug.js'
 import { Conn } from '../src/conn.js'
 import { startMcpServer } from './support/mcp-server.ts'
@@ -566,4 +566,63 @@ test('an address: a token as a piece of the path is hidden, ordinary path words 
   assert.equal(trace.events[0].kind, 'mcp')
   assert.equal(trace.events[0].url, 'https://s.example/s/' + HIDE + '/mcp')
   assert.ok(!(JSON.stringify(trace.events) + toLog(trace.events)).includes('sk_live_9f8a7b6c5d4e3f2a1b0c'))
+})
+
+/* ---- which way the protocol is spoken ---- */
+
+test('revisionLevel: current from 2026-07-28, info for 2025-11-25, warn for anything older, nothing for no revision', () => {
+  assert.deepEqual(['2026-07-28', '2027-01-15', '2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'].map(revisionLevel), ['current', 'current', 'info', 'warn', 'warn', 'warn'])
+  assert.deepEqual([undefined, null, '', 'draft', '2025'].map((v) => revisionLevel(v as string)), [null, null, null, null, null])
+})
+
+const connected = async (path: string, hooks = {}) => { const c = new Conn({ key: 'k', url: base + path }, hooks); await c.connect(); c.close(); return c.trace.events }
+
+test('protocolOf: a modern server answered the probe, and nothing in the trace is marked as failed', async () => {
+  const events = await connected('/modern-mcp')
+  const p = protocolOf(events)
+  assert.deepEqual([p.era, p.version, p.level, p.fellBack, p.probe!.ok, p.probe!.asked], ['modern', '2026-07-28', 'current', false, true, '2026-07-28'])
+  const m = rowsOf(events)
+  assert.deepEqual(m.list.filter((e) => m.keep(e, 'errors')).map((e) => e.method + ' ' + e.status), [])
+  assert.equal(judge(events).failure, null)
+})
+
+test('protocolOf: a 2025 server did not answer the probe, initialize was used, and the probe is a note, not an error', async () => {
+  const events = await connected('/mcp')
+  const p = protocolOf(events)
+  assert.deepEqual([p.era, p.version, p.level, p.fellBack, p.probe!.ok, p.probe!.status], ['legacy', '2025-11-25', 'info', true, false, 400])
+  assert.match(p.probe!.error!, /not initialized/i, 'what the server said to the probe')
+  const m = rowsOf(events)
+  const probeRow = m.list.find((e) => e.seq === p.probe!.seq)!
+  assert.equal(probeRow.type, 'http')
+  assert.equal(m.level(probeRow), 'info')
+  assert.deepEqual(m.list.filter((e) => m.keep(e, 'errors') && m.level(e) === 'fail'), [], 'nothing failed')
+  assert.equal(judge(events).failure, null)
+})
+
+test('protocolOf: older revisions are a warning level, and with negotiation off there is no probe', async () => {
+  for (const [path, version] of [['/rev-2025-06-18-mcp', '2025-06-18'], ['/rev-2025-03-26-mcp', '2025-03-26']]) {
+    const p = protocolOf(await connected(path))
+    assert.deepEqual([p.era, p.version, p.level, p.fellBack], ['legacy', version, 'warn', true])
+  }
+  const off = protocolOf(await connected('/mcp', { negotiation: 'legacy' }))
+  assert.deepEqual([off.era, off.version, off.probe, off.fellBack], ['legacy', '2025-11-25', null, false])
+  assert.deepEqual(protocolOf([]), { era: null, version: null, level: null, probe: null, fellBack: false })
+})
+
+test('protocolOf: a server that answers the probe with a JSON-RPC error (method not found) is a fallback too', () => {
+  const trace = createTrace({ url: 'https://s.example/mcp', fetch: async () => new Response(null) })
+  trace.begin()
+  trace.sent({ jsonrpc: '2.0', id: 'p1', method: 'server/discover', params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28' } } })
+  trace.received({ jsonrpc: '2.0', id: 'p1', error: { code: -32601, message: 'Method not found' } })
+  trace.sent({ jsonrpc: '2.0', id: 0, method: 'initialize', params: { protocolVersion: '2025-11-25' } })
+  trace.received({ jsonrpc: '2.0', id: 0, result: { protocolVersion: '2025-06-18', capabilities: {}, serverInfo: { name: 'x', version: '1' } } })
+  const p = protocolOf(trace.events)
+  assert.deepEqual([p.era, p.version, p.level, p.fellBack, p.probe!.error], ['legacy', '2025-06-18', 'warn', true, 'Method not found'])
+  const j = judge(trace.events)
+  assert.deepEqual(trace.events.slice(0, 2).map((e) => j.level(e)), ['info', 'info'], 'the unanswered probe and its error are not failures')
+  /* While still connecting (probe sent, nothing back yet) there is no verdict. */
+  const early = createTrace({ url: 'https://s.example/mcp', fetch: async () => new Response(null) })
+  early.begin()
+  early.sent({ jsonrpc: '2.0', id: 'p1', method: 'server/discover', params: {} })
+  assert.deepEqual([protocolOf(early.events).era, protocolOf(early.events).fellBack], [null, false])
 })

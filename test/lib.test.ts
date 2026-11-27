@@ -7,6 +7,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import * as lib from '../src/lib.js'
 import { oauthStore, PENDING_MAX_MS } from '../src/oauth.js'
 import { CLIENT_INFO } from '../src/conn.js'
+import { STRINGS } from '../src/strings.js'
 
 
 test('cleanUrl: accepts and normalizes http(s) only', () => {
@@ -325,4 +326,15 @@ test('the page carries nothing site specific', () => {
 test('isPrivateAddress: this computer and private networks, which a link must not make the page call by itself', () => {
   for (const u of ['http://localhost:3000/mcp', 'http://app.localhost/mcp', 'http://127.0.0.1:8080/mcp', 'https://10.1.2.3/mcp', 'http://172.16.0.1/mcp', 'http://172.31.255.1/mcp', 'http://192.168.0.10/mcp', 'http://169.254.1.1/mcp', 'http://printer.local/mcp', 'http://[::1]:9000/mcp', 'http://[fd00::1]/mcp', 'http://0.0.0.0/mcp']) assert.equal(lib.isPrivateAddress(u), true, u)
   for (const u of ['https://example.com/mcp', 'https://172.32.0.1/mcp', 'https://11.0.0.1/mcp', 'https://localhost.example.com/mcp', 'not a url']) assert.equal(lib.isPrivateAddress(u), false, u)
+})
+
+test('revisionNote: what to say about a revision, and what this inspector uses that an older one lacks', () => {
+  assert.deepEqual(lib.revisionNote('2026-07-28'), { level: 'current', missing: [] })
+  assert.deepEqual(lib.revisionNote('2025-11-25'), { level: 'info', missing: [] })
+  assert.deepEqual(lib.revisionNote('2025-06-18'), { level: 'warn', missing: [] }, 'older, but with everything used here')
+  assert.deepEqual(lib.revisionNote('2025-03-26'), { level: 'warn', missing: ['elicitation', 'titles'] })
+  assert.deepEqual(lib.revisionNote('2024-11-05'), { level: 'warn', missing: ['elicitation', 'titles', 'annotations', 'completions'] })
+  assert.deepEqual(lib.revisionNote(undefined), { level: null, missing: [] })
+  /* Each thing named has its words in both languages. */
+  for (const lang of ['en', 'ko'] as const) for (const k of ['featElicitation', 'featTitles', 'featAnnotations', 'featCompletions', 'protoCurrent', 'protoEarlier', 'protoOld', 'protoInfo', 'protoWarn', 'protoWarnNone', 'pingModern']) assert.ok(STRINGS[lang][k], lang + ' ' + k)
 })

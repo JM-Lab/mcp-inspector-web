@@ -37,10 +37,19 @@
 .mcpi-status[data-state=connecting]::before{background:var(--mcpi-accent)}
 .mcpi-status[data-state=failed]{color:var(--mcpi-accent2)}
 .mcpi-status[data-state=failed]::before{background:var(--mcpi-accent2)}
+.mcpi-status[data-state=auth]{color:var(--mcpi-accent)}
+.mcpi-status[data-state=auth]::before{background:var(--mcpi-accent)}
 .mcpi-btn{min-height:36px;padding:0 .8rem;border:1px solid var(--mcpi-rule);border-radius:6px;background:var(--mcpi-card);font-size:.8rem;font-weight:700}
 .mcpi-btn:disabled,.mcpi-run:disabled{opacity:.6;cursor:progress}
 .mcpi-info{margin:0;padding:0 1rem;font-size:.74rem;color:var(--mcpi-mute);font-family:var(--mcpi-mono);overflow-wrap:anywhere}
 .mcpi-info:empty{display:none}
+/* The protocol revision: plain when current, marked when it is an earlier or an older one, with a line that says what that means. */
+.mcpi-proto.is-info{color:var(--mcpi-accent)}
+.mcpi-proto.is-warn{color:#a15c00;font-weight:700}
+.mcpi-proto-note{margin:.15rem 0 0;padding:0 1rem;font-size:.74rem;line-height:1.45;color:var(--mcpi-mute)}
+.mcpi-proto-note.is-warn{color:#a15c00}
+.mcpi-proto-note[hidden]{display:none}
+@media (prefers-color-scheme:dark){.mcpi-proto.is-warn,.mcpi-proto-note.is-warn{color:#f0b35a}}
 .mcpi-instr{margin:.3rem 1rem 0;font-size:.78rem}
 .mcpi-instr summary{cursor:pointer;color:var(--mcpi-mute);font-weight:700;min-height:32px;display:flex;align-items:center}
 .mcpi-instr pre{font-size:.74rem;line-height:1.55;padding:.7rem .8rem;border:1px solid var(--mcpi-rule);border-radius:8px;max-height:16rem;overflow:auto}

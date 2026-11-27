@@ -3,6 +3,30 @@
  * Nothing here touches the DOM or localStorage directly: storage is passed in.
  */
 
+import { revisionLevel } from './trace.js'
+
+/*
+ * What this inspector uses that came with a later revision of the protocol, by the revision that brought it.
+ * Each is something the code here does: the elicitation form (conn.js), display titles and tool hints with the
+ * two-press guard for destructive tools (panes.js), argument suggestions (panes.js). Nothing else is listed.
+ */
+const SINCE = {
+  '2025-03-26': ['annotations', 'completions'],
+  '2025-06-18': ['elicitation', 'titles'],
+}
+
+/**
+ * What to say about the revision a connection settled on: { level, missing }.
+ *   level     'current' (2026-07-28 or later), 'info' (2025-11-25, the earlier way, still allowed by the specification),
+ *             'warn' (older), or null when the revision is not known
+ *   missing   for 'warn': what this inspector uses that the revision does not have yet (may be empty)
+ */
+export function revisionNote(version) {
+  const level = revisionLevel(version)
+  const missing = level === 'warn' ? Object.keys(SINCE).filter((since) => version < since).sort().reverse().flatMap((since) => SINCE[since]) : []
+  return { level, missing }
+}
+
 /** Default key prefix for everything the inspector keeps in the browser. */
 export const STORE_PREFIX = 'mcpi'
 /** Storage keys for a prefix. v1 was a plain array of added servers. */

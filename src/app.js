@@ -29,7 +29,7 @@ import { registryPanel } from './registry.js'
 import { linkOf, readLink, registryEntry, mergeQuery, handoffStore } from './share.js'
 import { openAddToAi } from './add-to-ai.js'
 import { debugView, debugNotice, tripStore, judge } from './debug.js'
-import { CAP, REGISTRY, STORE_PREFIX, hostOf, cleanUrl, isPrivateAddress, pushFront, filled, loadStore, saveStore, explainError, registryCard, isActive } from './lib.js'
+import { CAP, REGISTRY, STORE_PREFIX, hostOf, cleanUrl, isPrivateAddress, pushFront, filled, loadStore, saveStore, explainError, registryCard, isActive, revisionNote } from './lib.js'
 
 /* The last tab is the debugger: every HTTP request and JSON-RPC message, and the OAuth flow. Its key stays 'history'. */
 const TABS = [['tools', 'Tools'], ['prompts', 'Prompts'], ['resources', 'Resources'], ['history', 'Debug']]
@@ -91,6 +91,7 @@ export function mount(root, options) {
     url: h('code'),
     status: h('span', { class: 'mcpi-status' }),
     info: h('p', { class: 'mcpi-info' }),
+    proto: h('p', { class: 'mcpi-proto-note', hidden: true }),
     instr: h('details', { class: 'mcpi-instr', hidden: true }, h('summary', { text: 'Instructions' }), h('pre')),
     tabs: h('div', { class: 'mcpi-tabs', role: 'tablist' }),
     list: h('nav', { class: 'mcpi-list' }),
@@ -206,11 +207,28 @@ export function mount(root, options) {
     const s = snap()
     el.name.textContent = current.name
     el.url.textContent = current.url
-    el.status.textContent = c.state === 'connected' ? 'Connected' : c.state === 'connecting' ? ui.connecting : c.state === 'failed' ? 'Failed' : 'Not connected'
-    el.status.dataset.state = c.state
+    /* A server that only wants sign-in has not failed: it waits for the OAuth button or a token. */
+    el.status.textContent = c.state === 'connected' ? 'Connected' : c.state === 'connecting' ? ui.connecting : c.state === 'failed' ? (c.needAuth ? ui.needSignIn : 'Failed') : 'Not connected'
+    el.status.dataset.state = c.state === 'failed' && c.needAuth ? 'auth' : c.state
     const info = s && s.info
     const sv = (info && info.serverInfo) || {}
-    el.info.textContent = info ? [[sv.name, sv.version].filter(Boolean).join(' '), info.protocolVersion && 'protocol ' + info.protocolVersion, Object.keys(info.capabilities || {}).join(', ')].filter(Boolean).join(' · ') : ''
+    /*
+     * Which revision of the protocol the server speaks, with how it stands: the current one plainly, the newest earlier one
+     * with a note (it is fine), an older one with what this inspector uses that it may not have. Never as an error.
+     */
+    const rev = info && info.protocolVersion ? revisionNote(info.protocolVersion) : { level: null, missing: [] }
+    const protoText = !info || !info.protocolVersion ? '' : rev.level === 'current' ? ui.protoCurrent : rev.level === 'info' ? ui.protoEarlier : rev.level === 'warn' ? ui.protoOld : '{v}'
+    const featName = { elicitation: ui.featElicitation, titles: ui.featTitles, annotations: ui.featAnnotations, completions: ui.featCompletions }
+    const protoNote = rev.level === 'info' ? ui.protoInfo : rev.level === 'warn' ? (rev.missing.length ? ui.protoWarn.replace('{list}', rev.missing.map((k) => featName[k]).join(', ')) : ui.protoWarnNone) : ''
+    const dot = () => document.createTextNode(' · ')
+    const parts = info ? [
+      [sv.name, sv.version].filter(Boolean).join(' ') || null,
+      info.protocolVersion ? h('span', { class: 'mcpi-proto' + (rev.level ? ' is-' + rev.level : ''), 'data-level': rev.level || '', 'data-era': info.era || '', title: protoNote.replace('{v}', info.protocolVersion) || null }, 'protocol ' + protoText.replace('{v}', info.protocolVersion)) : null,
+      Object.keys(info.capabilities || {}).join(', ') || null].filter(Boolean) : []
+    el.info.replaceChildren(...parts.flatMap((x, i) => (i ? [dot(), x] : [x])))
+    el.proto.hidden = !protoNote
+    el.proto.className = 'mcpi-proto-note' + (rev.level ? ' is-' + rev.level : '')
+    el.proto.textContent = protoNote.replace('{v}', (info && info.protocolVersion) || '')
     el.instr.hidden = !(info && info.instructions)
     if (info && info.instructions) { const pre = el.instr.querySelector('pre'); pre.replaceChildren(); linkify(pre, info.instructions) }
     renderShare()
@@ -219,7 +237,9 @@ export function mount(root, options) {
       b.setAttribute('aria-pressed', b.dataset.key === current.key ? 'true' : 'false')
       b.dataset.state = conns[b.dataset.key] ? conns[b.dataset.key].state : 'idle'
     }
-    el.level.hidden = !(c.state === 'connected' && info && info.capabilities && info.capabilities.logging)
+    /* logging/setLevel is of the 2025 revisions only; the modern one has no such request. */
+    el.level.hidden = !(c.state === 'connected' && info && info.capabilities && info.capabilities.logging && info.era !== 'modern')
+    ping.title = c.state === 'connected' && info && info.era === 'modern' ? ui.pingModern : ''
     /* A server that once asked for authentication keeps its OAuth button (if it vanished after a failed OAuth, nobody would know what happened). */
     if (c.needAuth) current.wantsAuth = true
     const wants = c.needAuth || current.wantsAuth
@@ -508,7 +528,7 @@ export function mount(root, options) {
     h('div', { class: 'mcpi-top' },
       h('div', { class: 'mcpi-id' }, el.name, el.url),
       h('div', { class: 'mcpi-top-actions' }, el.status, el.level, ping, reconnect)),
-    el.alert, el.info, el.auth, el.share, el.instr, el.asks, el.tabs,
+    el.alert, el.info, el.proto, el.auth, el.share, el.instr, el.asks, el.tabs,
     h('div', { class: 'mcpi-body' }, el.list, el.select, el.pane))
   root.replaceChildren(el.servers, main, ...(registry ? [registry.el] : []))
   renderServers()

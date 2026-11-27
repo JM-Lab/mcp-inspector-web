@@ -9,6 +9,13 @@
  *   hooks.explain(error, oauth)  the error sentence shown to a person
  *   hooks.clientInfo             { name, version } sent in initialize
  * Every HTTP request and JSON-RPC message also goes into conn.trace (trace.js), which the debugger draws.
+ *
+ * Two ways of speaking the protocol are handled, and the server decides which (conn.era, after connecting):
+ *   'modern'   revision 2026-07-28 and later: the client asks server/discover, there is no initialize and no session,
+ *              and notifications come on a subscriptions/listen stream it opens
+ *   'legacy'   the 2025 revisions: initialize, a session id, notifications on the GET stream, resources/subscribe
+ * The client probes with server/discover first and falls back to initialize when the server does not know it.
+ * What differs between them is hidden behind send(): ping, and subscribing to a resource, work on both.
  */
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { isAuthError, isNetError } from './lib.js'
@@ -73,6 +80,9 @@ export class Conn {
     this.error = ''
     this.needAuth = false
     this.subs = new Set()
+    /* On a modern connection: the open subscriptions/listen streams, by resource address ('' for the list changes). */
+    this.listens = new Map()
+    this.era = null
     this.unseen = 0
     this.trace = createTrace({ url: server.url })
   }
@@ -86,7 +96,8 @@ export class Conn {
     const out = []
     let cursor
     for (let i = 0; i < 20; i++) {
-      const r = await fn(cursor ? { cursor } : undefined)
+      /* 'refresh': asked again each time, not served from the SDK's cache (a list is read again because it changed). */
+      const r = await fn(cursor ? { cursor } : undefined, { cacheMode: 'refresh' })
       out.push(...(r[key] || []))
       cursor = r.nextCursor
       if (!cursor) break
@@ -95,11 +106,11 @@ export class Conn {
   }
   async lists(client = this.client) {
     const caps = client.getServerCapabilities() || {}
-    const tools = caps.tools ? await this.listAll((p) => client.listTools(p), 'tools') : []
-    const prompts = caps.prompts ? await this.listAll((p) => client.listPrompts(p), 'prompts') : []
-    const resources = caps.resources ? await this.listAll((p) => client.listResources(p), 'resources') : []
+    const tools = caps.tools ? await this.listAll((p, o) => client.listTools(p, o), 'tools') : []
+    const prompts = caps.prompts ? await this.listAll((p, o) => client.listPrompts(p, o), 'prompts') : []
+    const resources = caps.resources ? await this.listAll((p, o) => client.listResources(p, o), 'resources') : []
     let templates = []
-    if (caps.resources) { try { templates = await this.listAll((p) => client.listResourceTemplates(p), 'resourceTemplates') } catch (e) { templates = [] } }
+    if (caps.resources) { try { templates = await this.listAll((p, o) => client.listResourceTemplates(p, o), 'resourceTemplates') } catch (e) { templates = [] } }
     return { tools, prompts, resources, templates }
   }
   async connect(opts) {
@@ -112,7 +123,10 @@ export class Conn {
     try {
       if (this.client) await this.client.close().catch(() => {})
       this.subs.clear()
-      const client = new Client(Object.assign({}, CLIENT_INFO, this.hooks.clientInfo), { capabilities: { elicitation: { form: {} } } })
+      this.listens.clear()
+      this.era = null
+      /* 'auto': ask server/discover (2026-07-28), and use the 2025 initialize handshake when the server does not answer it. */
+      const client = new Client(Object.assign({}, CLIENT_INFO, this.hooks.clientInfo), { capabilities: { elicitation: { form: {} } }, versionNegotiation: { mode: this.hooks.negotiation || 'auto' } })
       const transport = this.transport(oauth || this.hooks.hasTokens(this.server))
       tap(transport, this)
       if (opts && opts.callback) await transport.finishAuth(opts.callback)
@@ -124,8 +138,15 @@ export class Conn {
       await client.connect(transport)
       this.client = client
       const caps = client.getServerCapabilities() || {}
-      const info = { serverInfo: client.getServerVersion() || {}, instructions: client.getInstructions() || '', capabilities: caps, protocolVersion: transport.protocolVersion }
+      this.era = client.getProtocolEra() || 'legacy'
+      const info = { serverInfo: client.getServerVersion() || {}, instructions: client.getInstructions() || '', capabilities: caps, protocolVersion: client.getNegotiatedProtocolVersion() || transport.protocolVersion, era: this.era }
       const lists = await this.lists(client)
+      /* A modern server sends list changes only on a stream the client opens for them. Without it the lists just do not refresh. */
+      if (this.era === 'modern') {
+        const want = {}
+        for (const kind of ['tools', 'prompts', 'resources']) if (caps[kind] && caps[kind].listChanged) want[kind + 'ListChanged'] = true
+        if (Object.keys(want).length) client.listen(want).then((sub) => { if (this.client === client) this.listens.set('', sub); else sub.close().catch(() => {}) }, () => {})
+      }
       this.state = 'connected'
       return Object.assign({ info }, lists)
     } catch (e) {
@@ -142,16 +163,26 @@ export class Conn {
     if (method === 'tools/call') result = await c.callTool(params, opts)
     else if (method === 'prompts/get') result = await c.getPrompt(params, opts)
     else if (method === 'resources/read') result = await c.readResource(params, opts)
-    else if (method === 'resources/subscribe') { result = await c.subscribeResource(params, opts); this.subs.add(params.uri) }
-    else if (method === 'resources/unsubscribe') { result = await c.unsubscribeResource(params, opts); this.subs.delete(params.uri) }
-    else if (method === 'logging/setLevel') result = await c.setLoggingLevel(params.level, opts)
+    else if (method === 'resources/subscribe') {
+      /* Modern: a subscriptions/listen stream for this one resource, kept to close on unsubscribe. */
+      if (this.era === 'modern') { this.listens.set(params.uri, await c.listen({ resourceSubscriptions: [params.uri] }, opts)); result = {} }
+      else result = await c.subscribeResource(params, opts)
+      this.subs.add(params.uri)
+    } else if (method === 'resources/unsubscribe') {
+      if (this.era === 'modern') { const sub = this.listens.get(params.uri); this.listens.delete(params.uri); if (sub) await sub.close(); result = {} }
+      else result = await c.unsubscribeResource(params, opts)
+      this.subs.delete(params.uri)
+    } else if (method === 'logging/setLevel') result = await c.setLoggingLevel(params.level, opts)
     else if (method === 'completion/complete') result = await c.complete(params, opts)
-    else if (method === 'ping') result = await c.ping(opts)
+    /* Modern has no ping: server/discover is its request that only asks whether the server answers. */
+    else if (method === 'ping') result = this.era === 'modern' ? await c.discover(opts) : await c.ping(opts)
     else throw new Error('Unknown method: ' + method)
     this.lastMs = Math.round(now() - t0)
     return result
   }
   close() {
+    for (const sub of this.listens.values()) sub.close().catch(() => {})
+    this.listens.clear()
     if (this.client) this.client.close().catch(() => {})
     this.client = null
     this.state = 'idle'

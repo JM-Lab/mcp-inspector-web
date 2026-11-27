@@ -5,6 +5,11 @@ const CSS = `.mcpi-dbg,.mcpi-dbg-notice{--d-ink:var(--mcpi-ink,#16181d);--d-mute
 .mcpi-dbg button{font:inherit;color:inherit;cursor:pointer}
 .mcpi-dbg pre{margin:0;font-family:var(--d-mono);font-size:.72rem;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
 .mcpi-dbg .is-ok{color:var(--d-ok)}.mcpi-dbg .is-fail{color:var(--d-bad)}.mcpi-dbg .is-warn{color:var(--d-warn)}.mcpi-dbg .is-info,.mcpi-dbg .is-skip,.mcpi-dbg .is-none,.mcpi-dbg .is-busy{color:var(--d-mute)}
+.mcpi-dbg-proto{margin:0;font-size:.78rem;line-height:1.5;color:var(--d-mute)}
+.mcpi-dbg-proto[hidden]{display:none}
+.mcpi-dbg-proto b{color:var(--d-ink)}
+.mcpi-dbg-proto.is-warn b{color:var(--d-warn)}
+.mcpi-dbg-proto button{all:unset;cursor:pointer;text-decoration:underline;text-underline-offset:2px;color:var(--d-ink)}
 .mcpi-dbg-flow{border:1px solid var(--d-rule);border-radius:8px;padding:.1rem .8rem}
 .mcpi-dbg-flow.is-fail{border-color:var(--d-bad)}
 .mcpi-dbg-flow>summary{cursor:pointer;min-height:40px;display:flex;flex-wrap:wrap;align-items:center;gap:.3rem .5rem;font-weight:700}
