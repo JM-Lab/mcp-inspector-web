@@ -259,6 +259,23 @@ test('browser: the page against a local server, as a person uses it', { skip, ti
     assert.match(await b.run('location.search'), /^\?lang=en&u=http:\/\/127\.0\.0\.1:\d+\/token&h=x-test-key$/, 'rewritten in the short form')
   })
 
+  await t.test('the <mcp-inspector> element mounts from its attributes and options, and closes when removed', async () => {
+    await b.go(origin + '/lib.html')
+    await b.run(HELPERS)
+    const url = JSON.stringify(mcp.base + '/mcp')
+    await b.run(`MCPI.defineInspector(); const el = document.createElement('mcp-inspector'); el.setAttribute('lang', 'ko'); el.setAttribute('registry', 'false'); el.setAttribute('sync-url', 'false'); el.setAttribute('page-url', 'https://my.example/miw'); el.options = { servers: [{ key: 'local', name: 'Local', url: ${url} }] }; document.body.append(el); true`)
+    await b.until(`document.querySelector('mcp-inspector.mcpi .mcpi-server')`, 4000)
+    assert.equal(await b.run(`!!document.querySelector('mcp-inspector .mcpi-registry')`), false, 'registry="false" hides the registry')
+    assert.match(await b.run(`document.querySelector('mcp-inspector .mcpi-label').textContent`), /추천 서버|최근|내가/, 'lang="ko"')
+    assert.equal(await b.run(`document.querySelector('mcp-inspector .mcpi-card-share').dataset.copy`), 'https://my.example/miw?s=local', 'page-url starts its links')
+    await b.until(`$t.status() === 'Connected'`)
+    /* A changed attribute mounts it again; removing it takes it down. */
+    await b.run(`document.querySelector('mcp-inspector').setAttribute('lang', 'en'); true`)
+    await b.until(`/Featured servers/.test(document.querySelector('mcp-inspector .mcpi-label').textContent)`, 4000)
+    await b.run(`window.el = document.querySelector('mcp-inspector'); el.remove(); true`)
+    assert.equal(await b.run(`el.childElementCount + '|' + el.classList.contains('mcpi') + '|' + (el.inspector === null)`), '0|false|true')
+  })
+
   await t.test('mount returns destroy, which closes its connections and empties the element', async () => {
     await b.go(origin + '/lib.html')
     await b.run(HELPERS)

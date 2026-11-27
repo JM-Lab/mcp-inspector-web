@@ -5,9 +5,14 @@
  *   <div id="mcpi"></div>
  *   <script>window.MCP_INSPECTOR = { lang: 'en' }</script>
  *   <script src="mcp-inspector.js" defer></script>
+ *
+ * It also defines <mcp-inspector> (element.js), for pages that would rather write the tag.
  */
 import { mount } from './app.js'
+import { defineInspector } from './element.js'
 
+/* <mcp-inspector> works with this bundle too. */
+defineInspector()
 const options = (typeof window !== 'undefined' && window.MCP_INSPECTOR) || {}
 const root = typeof document !== 'undefined' && document.getElementById(options.root || 'mcpi')
 if (root) mount(root, options)

@@ -37,6 +37,8 @@ export interface Inspector {
 }
 
 export function mount(root: HTMLElement, options?: MountOptions): Inspector
+/** Registers the <mcp-inspector> element (or another tag name). Attributes: lang, page-url, registry, featured, storage-prefix, sync-url, open-first, hold-private; el.options takes any MountOptions. */
+export function defineInspector(tag?: string): void
 
 export const STRINGS: { en: Record<string, string>; ko: Record<string, string> }
 export const CLIENT_INFO: { name: string; version: string }

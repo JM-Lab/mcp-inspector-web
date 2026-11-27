@@ -9,6 +9,7 @@
  * and so is the add-to-AI-client component (add-to-ai.js, also on its own as 'mcp-inspector-web/add-to-ai').
  */
 export { mount } from './app.js'
+export { defineInspector } from './element.js'
 export { Conn, CLIENT_INFO } from './conn.js'
 export { STRINGS } from './strings.js'
 export { addToAiButton, openAddToAi, clientsFor, fromRegistry, defineAddToAi } from './add-to-ai.js'
